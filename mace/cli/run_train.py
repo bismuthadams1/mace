@@ -19,6 +19,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import LBFGS
 from torch.utils.data import ConcatDataset
 from torch_ema import ExponentialMovingAverage
+from torch.utils.data import WeightedRandomSampler
 
 import mace
 from mace import data, tools
@@ -580,6 +581,7 @@ def run(args) -> None:
 
     # concatenate all the trainsets
     train_set = ConcatDataset([train_sets[head] for head in heads])
+    print('train_set', train_set[0])
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -601,16 +603,44 @@ def run(args) -> None:
                 seed=args.seed,
             )
             valid_samplers[head] = valid_sampler
+
+    #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
+
+    all_jeffs = [data[-1] for data in train_set]   # adjust if your target key is different
+    is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
+    weights   = torch.where(is_zero, torch.ones_like(is_zero), torch.ones_like(is_zero) * 10.0)
+    
+    logging.info('Weighted Random Sampler Modification')
+    train_sampler = WeightedRandomSampler(
+        weights=weights,
+        num_samples=len(weights),
+        replacement=True,
+    )
+
     train_loader = torch_geometric.dataloader.DataLoader(
         dataset=train_set,
-        batch_size=args.batch_size,
-        sampler=train_sampler,
-        shuffle=(train_sampler is None),
-        drop_last=(train_sampler is None and not args.lbfgs),
-        pin_memory=args.pin_memory,
-        num_workers=args.num_workers,
-        generator=torch.Generator().manual_seed(args.seed),
+        batch_size   = args.batch_size,
+        sampler      = train_sampler,
+        shuffle      = False,            # sampler already shuffles
+        drop_last    = (not args.lbfgs),
+        pin_memory   = args.pin_memory,
+        num_workers  = args.num_workers,
+        generator    = torch.Generator().manual_seed(args.seed),
     )
+
+    #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
+
+
+    # train_loader = torch_geometric.dataloader.DataLoader(
+    #     dataset=train_set,
+    #     batch_size=args.batch_size,
+    #     sampler=train_sampler,
+    #     shuffle=(train_sampler is None),
+    #     drop_last=(train_sampler is None and not args.lbfgs),
+    #     pin_memory=args.pin_memory,
+    #     num_workers=args.num_workers,
+    #     generator=torch.Generator().manual_seed(args.seed),
+    # )
     valid_loaders = {heads[i]: None for i in range(len(heads))}
     if not isinstance(valid_sets, dict):
         valid_sets = {"Default": valid_sets}
