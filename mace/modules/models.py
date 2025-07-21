@@ -22,6 +22,8 @@ from .blocks import (
     LinearDipoleReadoutBlock,
     LinearNodeEmbeddingBlock,
     LinearReadoutBlock,
+    LinearCouplingReadoutBlock,
+    NonLinearCouplingReadoutBlock,
     NonLinearDipoleReadoutBlock,
     NonLinearReadoutBlock,
     RadialEmbeddingBlock,
@@ -1120,7 +1122,12 @@ class CouplingClassifier(torch.nn.Module):
             max_ell: int    
                 The maximum SO(3) irreps dimension. to use in the model (during interactions). 
                 SO(3) is the rotation group in 3D space.
-            
+            interaction_cls: Type[InteractionBlock]
+                The class of interaction block to use for the model.
+            interaction_cls_first: Type[InteractionBlock]
+                The class of interaction block to use for the first layer of the model.
+            num_interactions: int
+                The number of interaction layers in the model.
             
             """ 
             super().__init__()
@@ -1184,7 +1191,50 @@ class CouplingClassifier(torch.nn.Module):
                 use_sc=use_sc_first,
             )
             self.products = torch.nn.ModuleList([prod])
+
+            self.readouts = torch.nn.ModuleList()
+            self.readouts.append(LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False))  
             
+            for i in range(num_interactions - 1):
+                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
+                    assert (
+                        len(hidden_irreps) > 1
+                    ), "To predict classifiers use at least l=1 hidden_irreps"
+                    hidden_irreps_out = str(
+                        hidden_irreps[0]
+                    ) #select only scalars for last layer
+                else:
+                    hidden_irreps_out = hidden_irreps
+                inter = interaction_cls(
+                    node_attrs_irreps=node_attr_irreps,
+                    node_feats_irreps=hidden_irreps,
+                    edge_attrs_irreps=sh_irreps,
+                    edge_feats_irreps=edge_feats_irreps,
+                    target_irreps=interaction_irreps,
+                    hidden_irreps=hidden_irreps_out,
+                    avg_num_neighbors=avg_num_neighbors,
+                    radial_MLP=radial_MLP,
+                )
+                self.interactions.append(inter)
+                prod = EquivariantProductBasisBlock(
+                    node_feats_irreps=interaction_irreps,
+                    target_irreps=hidden_irreps_out,
+                    correlation=correlation,
+                    num_elements=num_elements,
+                    use_sc=True,
+                )
+                self.products.append(prod)
+                if i == num_interactions - 2:
+                    self.readouts.append(
+                        NonLinearCouplingReadoutBlock(
+                            hidden_irreps_out, MLP_irreps, gate, dipole_only=False
+                        )
+                    )
+                else:
+                    self.readouts.append(
+                        LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
+                    )
+    
 
 
 

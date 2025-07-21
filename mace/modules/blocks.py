@@ -170,18 +170,7 @@ class LinearDipoleReadoutBlock(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # [n_nodes, irreps]  # [..., ]
         return self.linear(x)  # [n_nodes, 1]
-
-@compile_mode("script")
-class LinearCouplingReadoutBlock(torch.nn.Module):
-    def __init__(
-            self,
-            irreps_in: o3.Irreps,
-            cueq_config: Optional[CuEquivarianceConfig] = None,
-            oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
-            ):
-        super().__init__()
-        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
-        
+    
 
 @compile_mode("script")
 class NonLinearDipoleReadoutBlock(torch.nn.Module):
@@ -202,11 +191,12 @@ class NonLinearDipoleReadoutBlock(torch.nn.Module):
             self.irreps_out = o3.Irreps("1x0e + 1x1o")
         irreps_scalars = o3.Irreps(
             [(mul, ir) for mul, ir in MLP_irreps if ir.l == 0 and ir in self.irreps_out]
-        )
+        ) # scalers to be passed through activation functions
         irreps_gated = o3.Irreps(
             [(mul, ir) for mul, ir in MLP_irreps if ir.l > 0 and ir in self.irreps_out]
-        )
-        irreps_gates = o3.Irreps([mul, "0e"] for mul, _ in irreps_gated)
+        ) # gated tensors ie features we want to modulate
+        irreps_gates = o3.Irreps([mul, "0e"] for mul, _ in irreps_gated) #scalers to be passed through activation functions
+       
         self.equivariant_nonlin = nn.Gate(
             irreps_scalars=irreps_scalars,
             act_scalars=[gate for _, ir in irreps_scalars],
@@ -228,6 +218,77 @@ class NonLinearDipoleReadoutBlock(torch.nn.Module):
         x = self.equivariant_nonlin(self.linear_1(x))
         return self.linear_2(x)  # [n_nodes, 1]
 
+    
+# @compile_mode("script")
+# class GraphLevelReadoutBlock(torch.nn.Module):
+#     def __init__(self, irreps_in: o3.Irreps):
+#         super().__init__()
+#         # we want a single invariant scalar out for the whole graph
+#         self.irreps_out = o3.Irreps("1x0e")
+#         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
+
+#     def forward(self, node_feats: torch.Tensor) -> torch.Tensor:
+#         # node_feats: [batch, n_nodes, irreps_in.dim]
+#         # 1) pool across the nodes → graph_feats: [batch, irreps_in.dim]
+#         graph_feats = node_feats.sum(dim=-2)
+#         # 2) linear map down to [batch, 1]
+#         return self.linear(graph_feats)
+
+@compile_mode("script")
+class LinearCouplingReadoutBlock(torch.nn.Module):
+    def __init__(
+            self,
+            irreps_in: o3.Irreps,
+            cueq_config: Optional[CuEquivarianceConfig] = None,
+            oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+            ):
+        super().__init__()
+        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        scalars = self.linear(x)
+        graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
+        logit = self.linear(graph_feats)
+        return torch.sigmoid(logit) #probability of coupling
+
+@compile_mode("script")
+class NonLinearCouplingReadoutBlick(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_in: o3.Irreps,
+        MLP_irreps: o3.Irreps,   
+        gate: Optional[Callable],  #activation function 
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+        oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument):
+    ):
+        super().__init__()
+        self.hidden_irreps = MLP_irreps
+        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+
+        self.non_linearity = nn.Activation(
+            irreps_in=self.hidden_irreps,
+            acts=[gate]  # one gate function, applied to all scalar channels
+        )
+        self.irreps_nonlin = self.equivariant_nonlin.irreps_in.simplify()
+        # two linear maps: input → hidden → scalar output
+        self.linear_1 = Linear(
+            irreps_in=irreps_in,
+            irreps_out=self.irreps_nonlin,
+            cueq_config=cueq_config,
+        )
+        self.linear_2 = Linear(
+            irreps_in=self.irreps_nonlin,
+            irreps_out=self.irreps_out,
+            cueq_config=cueq_config,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.non_linearity(self.linear_1(x))
+        scalars = self.linear_2(x)  
+        logit = scalars.sum(dim=-2)              # [..., 1]
+
+        return torch.sigmoid(logit)
 
 @compile_mode("script")
 class AtomicEnergiesBlock(torch.nn.Module):
