@@ -1234,7 +1234,71 @@ class CouplingClassifier(torch.nn.Module):
                     self.readouts.append(
                         LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
                     )
-    
+    def forward(
+        self,
+        data: Dict[str, torch.Tensor],
+        training: bool = False,  # pylint: disable=W0613
+        compute_force: bool = False,
+        compute_virials: bool = False,
+        compute_stress: bool = False,
+        compute_displacement: bool = False,
+        compute_edge_forces: bool = False,  # pylint: disable=W0613
+        compute_atomic_stresses: bool = False,  # pylint: disable=W0613
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        assert compute_force is False
+        assert compute_virials is False
+        assert compute_stress is False
+        assert compute_displacement is False
+
+        # Setup
+        data["node_attrs"].requires_grad_(True)
+        data["positions"].requires_grad_(True)
+        num_graphs = data["ptr"].numel() - 1
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        vectors, lengths = get_edge_vectors_and_lengths(
+            positions=data["positions"],
+            edge_index=data["edge_index"],
+            shifts=data["shifts"],
+        )
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        coupling_probs = []
+        for interaction, product, readout in zip(
+            self.interactions, self.products, self.readouts
+        ):
+            node_feats, sc = interaction(
+                node_attrs=data["node_attrs"],
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff,
+            )
+            node_feats = product(
+                node_feats=node_feats,
+                sc=sc,
+                node_attrs=data["node_attrs"],
+            )
+            node_out = readout(node_feats).squeeze(-1)
+            coupling_probs.append(node_out)
+
+        node_out = coupling_probs[0]
+        graph_logits = node_out.sum(dim=1)
+         #collect final logits for the nodes, will be shape [n_nodes, n_classes]
+        coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
+        output = {
+            "coupling_prob": coupling_prob  # [n_nodes, n_classes]
+        }
+
+        return output
+        
+
+            
 
 
 
@@ -1247,5 +1311,5 @@ class CouplingClassifier(torch.nn.Module):
     #     self.coupling_class_to_idx = {cls: idx for idx, cls in enumerate(coupling_classes)}
     #     self.num_classes = len(coupling_classes)
 
-    def forward(self, data: Dict[str, torch.Tensor]) -> torch.Tensor:
-        # Assuming data contains a 'coupling_class' field with
+    # def forward(self, data: Dict[str, torch.Tensor]) -> torch.Tensor:
+    #     # Assuming data contains a 'coupling_class' field with

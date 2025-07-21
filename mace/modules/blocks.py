@@ -248,12 +248,12 @@ class LinearCouplingReadoutBlock(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         scalars = self.linear(x)
-        graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
-        logit = self.linear(graph_feats)
-        return torch.sigmoid(logit) #probability of coupling
+        # graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
+        # logit = self.linear(graph_feats)
+        return scalars #torch.sigmoid(logit) #probability of coupling
 
 @compile_mode("script")
-class NonLinearCouplingReadoutBlick(torch.nn.Module):
+class NonLinearCouplingReadoutBlock(torch.nn.Module):
     def __init__(
         self,
         irreps_in: o3.Irreps,
@@ -264,7 +264,7 @@ class NonLinearCouplingReadoutBlick(torch.nn.Module):
     ):
         super().__init__()
         self.hidden_irreps = MLP_irreps
-        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        self.irreps_out = o3.Irreps("1x0e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
 
         self.non_linearity = nn.Activation(
             irreps_in=self.hidden_irreps,
@@ -285,10 +285,10 @@ class NonLinearCouplingReadoutBlick(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.non_linearity(self.linear_1(x))
-        scalars = self.linear_2(x)  
-        logit = scalars.sum(dim=-2)              # [..., 1]
+        logit = self.linear_2(x)  
+        # logit = scalars.sum(dim=-2)              # [..., 1]
 
-        return torch.sigmoid(logit)
+        return logit #torch.sigmoid(logit)
 
 @compile_mode("script")
 class AtomicEnergiesBlock(torch.nn.Module):
