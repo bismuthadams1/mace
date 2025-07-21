@@ -171,6 +171,17 @@ class LinearDipoleReadoutBlock(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # [n_nodes, irreps]  # [..., ]
         return self.linear(x)  # [n_nodes, 1]
 
+@compile_mode("script")
+class LinearCouplingReadoutBlock(torch.nn.Module):
+    def __init__(
+            self,
+            irreps_in: o3.Irreps,
+            cueq_config: Optional[CuEquivarianceConfig] = None,
+            oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+            ):
+        super().__init__()
+        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        
 
 @compile_mode("script")
 class NonLinearDipoleReadoutBlock(torch.nn.Module):
