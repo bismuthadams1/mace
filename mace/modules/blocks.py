@@ -319,6 +319,29 @@ class AtomicEnergiesBlock(torch.nn.Module):
 
 
 @compile_mode("script")
+class LinearGraphLevelCoupling(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_in: o3.Irreps,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+        oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+        ):
+        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
+
+    
+    def forward(
+        self,
+        x: torch.Tensor,  # [n_nodes, irreps_in.dim]
+    ) -> torch.Tensor:
+        # x: [n_nodes, irreps_in.dim]
+        # 1) pool across the nodes → graph_feats: [irreps_in.dim]
+        graph_feats = scatter_sum(x, dim=-2)
+        return self.linear(graph_feats)  # [1, irreps_out.dim]
+
+
+
+@compile_mode("script")
 class RadialEmbeddingBlock(torch.nn.Module):
     def __init__(
         self,

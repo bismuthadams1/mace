@@ -1039,7 +1039,7 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         "--mean_weighted_sampler",
         help="mean weighted sampler for the training set",
         type=str2bool,
-        default=True,
+        default=None,
     )
 
     return parser
