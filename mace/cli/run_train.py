@@ -464,6 +464,7 @@ def run(args) -> None:
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
+        args.loss = "classifier_loss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
