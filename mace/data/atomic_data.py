@@ -47,6 +47,7 @@ class AtomicData(torch_geometric.data.Data):
     virials_weight: torch.Tensor
     dipole_weight: torch.Tensor
     charges_weight: torch.Tensor
+    coupling_class: torch.Tensor
 
     def __init__(
         self,
@@ -73,6 +74,7 @@ class AtomicData(torch_geometric.data.Data):
         elec_temp: Optional[torch.Tensor],  # [,]
         total_charge: Optional[torch.Tensor] = None,  # [,]
         total_spin: Optional[torch.Tensor] = None,  # [,]
+        coupling_class: Optional[torch.Tensor] = None,  # [,]
     ):
         # Check shapes
         num_nodes = node_attrs.shape[0]
@@ -100,6 +102,7 @@ class AtomicData(torch_geometric.data.Data):
         assert elec_temp is None or len(elec_temp.shape) == 0
         assert total_charge is None or len(total_charge.shape) == 0
         assert total_spin is None or len(total_spin.shape) == 0
+        assert coupling_class is None or len(coupling_class.shape) == 0
         # Aggregate data
         data = {
             "num_nodes": num_nodes,
@@ -126,6 +129,7 @@ class AtomicData(torch_geometric.data.Data):
             "elec_temp": elec_temp,
             "total_charge": total_charge,
             "total_spin": total_spin,
+            "coupling_class": coupling_class,
         }
         super().__init__(**data)
 
@@ -296,6 +300,8 @@ class AtomicData(torch_geometric.data.Data):
             else torch.tensor(1.0, dtype=torch.get_default_dtype())
         )
 
+        coupling_class = (energy > 0.0).to(dtype=torch.float32)
+
         return cls(
             edge_index=torch.tensor(edge_index, dtype=torch.long),
             positions=torch.tensor(config.positions, dtype=torch.get_default_dtype()),
@@ -320,6 +326,7 @@ class AtomicData(torch_geometric.data.Data):
             elec_temp=elec_temp,
             total_charge=total_charge,
             total_spin=total_spin,
+            coupling_class = coupling_class
         )
 
 

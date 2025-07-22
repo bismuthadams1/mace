@@ -457,6 +457,13 @@ def run(args) -> None:
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
+    elif args.model == "CouplingClassifier":
+        atomic_energies = None
+        args.compute_dipole = False
+        args.compute_energy = False
+        args.compute_forces = False
+        args.compute_virials = False
+        args.compute_stress = False
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
@@ -581,7 +588,6 @@ def run(args) -> None:
 
     # concatenate all the trainsets
     train_set = ConcatDataset([train_sets[head] for head in heads])
-    print('train_set', train_set[0])
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -604,44 +610,45 @@ def run(args) -> None:
             )
             valid_samplers[head] = valid_sampler
 
-    #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
+    if args.mean_weighted_sampler:
+        logging.info('Weighted Random Sampler Modification')
+        #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
 
-    all_jeffs = torch.tensor([data.energy for data in train_set])   # adjust if your target key is different
-    # is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
-    is_zero = (all_jeffs == 0.0)
-    weights = torch.ones_like(all_jeffs)    # float tensor
-    weights[~is_zero] = 10.0                # 10× weight for non-zero Jeffs    
-    logging.info('Weighted Random Sampler Modification')
-    train_sampler = WeightedRandomSampler(
-        weights=weights,
-        num_samples=len(weights),
-        replacement=True,
-    )
+        all_jeffs = [data[-1] for data in train_set]   # adjust if your target key is different
+        is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
+        weights   = torch.where(is_zero, torch.ones_like(is_zero), torch.ones_like(is_zero) * 10.0)
+        
+        train_sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=len(weights),
+            replacement=True,
+        )
 
-    train_loader = torch_geometric.dataloader.DataLoader(
-        dataset=train_set,
-        batch_size   = args.batch_size,
-        sampler      = train_sampler,
-        shuffle      = False,            # sampler already shuffles
-        drop_last    = (not args.lbfgs),
-        pin_memory   = args.pin_memory,
-        num_workers  = args.num_workers,
-        generator    = torch.Generator().manual_seed(args.seed),
-    )
+        train_loader = torch_geometric.dataloader.DataLoader(
+            dataset=train_set,
+            batch_size   = args.batch_size,
+            sampler      = train_sampler,
+            shuffle      = False,            # sampler already shuffles
+            drop_last    = (not args.lbfgs),
+            pin_memory   = args.pin_memory,
+            num_workers  = args.num_workers,
+            generator    = torch.Generator().manual_seed(args.seed),
+        )
 
-    #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
+        #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
 
-
-    # train_loader = torch_geometric.dataloader.DataLoader(
-    #     dataset=train_set,
-    #     batch_size=args.batch_size,
-    #     sampler=train_sampler,
-    #     shuffle=(train_sampler is None),
-    #     drop_last=(train_sampler is None and not args.lbfgs),
-    #     pin_memory=args.pin_memory,
-    #     num_workers=args.num_workers,
-    #     generator=torch.Generator().manual_seed(args.seed),
-    # )
+    else:
+        logging.info("Using default DataLoader without weighted sampling")
+        train_loader = torch_geometric.dataloader.DataLoader(
+            dataset=train_set,
+            batch_size=args.batch_size,
+            sampler=train_sampler,
+            shuffle=(train_sampler is None),
+            drop_last=(train_sampler is None and not args.lbfgs),
+            pin_memory=args.pin_memory,
+            num_workers=args.num_workers,
+            generator=torch.Generator().manual_seed(args.seed),
+        )
     valid_loaders = {heads[i]: None for i in range(len(heads))}
     if not isinstance(valid_sets, dict):
         valid_sets = {"Default": valid_sets}
