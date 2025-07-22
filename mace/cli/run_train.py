@@ -458,6 +458,7 @@ def run(args) -> None:
         args.compute_virials = False
         args.compute_stress = False
     elif args.model == "CouplingClassifier":
+        logging.info("Building a Coupling Classified Model")
         atomic_energies = None
         args.compute_dipole = False
         args.compute_energy = False
