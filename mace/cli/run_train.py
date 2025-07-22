@@ -606,10 +606,11 @@ def run(args) -> None:
 
     #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
 
-    all_jeffs = [data[-1] for data in train_set]   # adjust if your target key is different
-    is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
-    weights   = torch.where(is_zero, torch.ones_like(is_zero), torch.ones_like(is_zero) * 10.0)
-    
+    all_jeffs = torch.tensor([data.energy for data in train_set])   # adjust if your target key is different
+    # is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
+    is_zero = (all_jeffs == 0.0)
+    weights = torch.ones_like(all_jeffs)    # float tensor
+    weights[~is_zero] = 10.0                # 10× weight for non-zero Jeffs    
     logging.info('Weighted Random Sampler Modification')
     train_sampler = WeightedRandomSampler(
         weights=weights,
