@@ -286,8 +286,7 @@ def _build_model(
         )
     
     if args.model == "CouplingClassifier":
-
-        CouplingClassifier = modules.CouplingClassifier(
+        return modules.CouplingClassifier(
             **model_config,
             pair_repulsion=args.pair_repulsion,
             distance_transform=args.distance_transform,
