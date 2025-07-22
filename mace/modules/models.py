@@ -1297,19 +1297,7 @@ class CouplingClassifier(torch.nn.Module):
 
         return output
         
-
-            
-
-
+# @compile_mode("script")
+# class CouplingPredictor(torch.nn.Module):
 
 
-
-
-    # def __init__(self, coupling_classes: List[str]):
-    #     super().__init__()
-    #     self.coupling_classes = coupling_classes
-    #     self.coupling_class_to_idx = {cls: idx for idx, cls in enumerate(coupling_classes)}
-    #     self.num_classes = len(coupling_classes)
-
-    # def forward(self, data: Dict[str, torch.Tensor]) -> torch.Tensor:
-    #     # Assuming data contains a 'coupling_class' field with
