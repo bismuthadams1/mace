@@ -79,6 +79,20 @@ def weighted_mean_absolute_error_energy(
     )
     return reduce_loss(raw_loss, ddp)
 
+def weighted_coupling_loss(
+    ref: Batch,
+    pred: TensorDict,
+    ddp: Optional[bool] = None,
+) -> torch.Tensor:
+    
+    per_graph_loss = torch.F.binary_cross_entropy_with_logits(
+        pred["coupling_class"],  # probabilities in (0,1)
+        ref["coupling_class"],     # 0.0 or 1.0
+        reduction="none",
+    )
+    weighted = per_graph_loss * ref.weight * ref.energy_weight #Adjust weights to match imbalance in the dataset
+    return reduce_loss(weighted, ddp)
+
 
 # ------------------------------------------------------------------------------
 # Stress and Virials Loss Functions

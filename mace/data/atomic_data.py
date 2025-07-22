@@ -301,6 +301,7 @@ class AtomicData(torch_geometric.data.Data):
         )
 
         coupling_class = (energy > 0.0).to(dtype=torch.float32)
+        
 
         return cls(
             edge_index=torch.tensor(edge_index, dtype=torch.long),

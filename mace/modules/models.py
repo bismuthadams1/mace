@@ -1290,9 +1290,10 @@ class CouplingClassifier(torch.nn.Module):
         node_out = coupling_probs[0]
         graph_logits = node_out.sum(dim=1)
          #collect final logits for the nodes, will be shape [n_nodes, n_classes]
-        coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
+        # coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
+        # LEAVE AS LOGITS FOR NOW FOR BETTER NUMERICAL STABILITY
         output = {
-            "coupling_prob": coupling_prob  # [n_nodes, n_classes]
+            "coupling_class": graph_logits  # [n_nodes, n_classes]
         }
 
         return output
