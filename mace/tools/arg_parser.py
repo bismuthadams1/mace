@@ -133,6 +133,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "ScaleShiftBOTNet",
             "AtomicDipolesMACE",
             "EnergyDipolesMACE",
+            "CouplingClassifier",
         ],
     )
     parser.add_argument(
@@ -588,6 +589,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--forces_weight", help="weight of forces loss", type=float, default=100.0
     )
+
     parser.add_argument(
         "--swa_forces_weight",
         "--stage_two_forces_weight",
@@ -1032,6 +1034,14 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         default=None,
         required=False,
     )
+
+    parser.add_argument(
+        "--mean_weighted_sampler",
+        help="mean weighted sampler for the training set",
+        type=str2bool,
+        default=True,
+    )
+
     return parser
 
 
