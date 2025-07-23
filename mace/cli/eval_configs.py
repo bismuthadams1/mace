@@ -106,10 +106,10 @@ def parse_args() -> argparse.Namespace:
         "--mean_weighted_sampler",
         help="use a weighted random sampler for training",
         action="store_true",
-        default=False,
+        default=None,
         required=False,
     )
-    
+
     return parser.parse_args()
 
 

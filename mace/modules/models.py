@@ -1298,7 +1298,115 @@ class CouplingClassifier(torch.nn.Module):
 
         return output
         
-# @compile_mode("script")
-# class CouplingPredictor(torch.nn.Module):
+@compile_mode("script")
+class CouplingPredictor(torch.nn.Module):
 
+   def __init__(
+        self, 
+        r_max: float,
+        num_bessel: int,
+        num_polynomial_cutoff: int,
+        max_ell: int,
+        interaction_cls: Type[InteractionBlock],
+        interaction_cls_first: Type[InteractionBlock],
+        num_interactions: int,
+        num_elements: int,
+        hidden_irreps: o3.Irreps,
+        MLP_irreps: o3.Irreps,  #o3 is a module from e3nn which calculates the irreps in 3D space
+        avg_num_neighbors: float,
+        atomic_numbers: List[int],
+        correlation: int,
+        gate: Optional[Callable],
+        atomic_energies: Optional[None],
+        apply_cutoff: bool = True,  # pylint: disable=unused-argument
+        use_reduced_cg: bool = True,  # pylint: disable=unused-argument
+        use_so3: bool = False,  # pylint: disable=unused-argument
+        distance_transform: str = "None",  # pylint: disable=unused-argument
+        radial_type: Optional[str] = "bessel",
+        radial_MLP: Optional[List[int]] = None,
+        cueq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
+        oeq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
+        edge_irreps: Optional[o3.Irreps] = None,  # pylint: disable=unused-argument
+        ):
+            """Initializes a coupling classifier for MACE.
 
+            r_max: float
+                The maximum distance for the radial embedding.
+            num_bessel: int
+                The number of Bessel functions to use in the radial embedding.
+            num_polynomial_cutoff: int
+                The cut-off polynomial envelope power.
+            max_ell: int    
+                The maximum SO(3) irreps dimension. to use in the model (during interactions). 
+                SO(3) is the rotation group in 3D space.
+            interaction_cls: Type[InteractionBlock]
+                The class of interaction block to use for the model.
+            interaction_cls_first: Type[InteractionBlock]
+                The class of interaction block to use for the first layer of the model.
+            num_interactions: int
+                The number of interaction layers in the model.
+            
+            """ 
+            super().__init__()
+            self.register_buffer(
+                "atomic_numbers", torch.tensor(atomic_numbers, dtype=torch.int64)
+            )
+            self.register_buffer("r_max", torch.tensor(r_max, dtype=torch.float64))
+            self.register_buffer(
+                "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
+            )
+            assert atomic_energies is None
+
+            # Embedding
+            node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) 
+            node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
+            self.node_embedding = LinearNodeEmbeddingBlock(
+                irreps_in=node_attr_irreps, irreps_out=node_feats_irreps
+            )
+            self.radial_embedding = RadialEmbeddingBlock(
+                r_max=r_max,
+                num_bessel=num_bessel,
+                num_polynomial_cutoff=num_polynomial_cutoff,
+                radial_type=radial_type,
+            )
+
+            edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e") #number of edge feature channels
+
+            sh_irreps = o3.Irreps.spherical_harmonics(max_ell)
+            num_features = hidden_irreps.count(o3.Irrep(0, 1))
+            interaction_irreps = (sh_irreps * num_features).sort()[0].simplify()
+            self.spherical_harmonics = o3.SphericalHarmonics(
+                sh_irreps, normalize=True, normalization="component"
+            )
+            if radial_MLP is None:
+                radial_MLP = [64, 64, 64]   
+            
+            # Interactions and readouts
+            inter = interaction_cls_first(
+                node_attrs_irreps=node_attr_irreps,
+                node_feats_irreps=node_feats_irreps,
+                edge_attrs_irreps=sh_irreps,        
+                edge_feats_irreps=edge_feats_irreps,
+                target_irreps=interaction_irreps,
+                hidden_irreps=hidden_irreps,
+                avg_num_neighbors=avg_num_neighbors,
+                radial_MLP=radial_MLP,
+            )
+            self.interactions = torch.nn.ModuleList([inter])
+
+            # Use the appropriate self connection at the first layer
+            use_sc_first = False
+            if "Residual" in str(interaction_cls_first):
+                use_sc_first = True
+
+            node_feats_irreps_out = inter.target_irreps
+            prod = EquivariantProductBasisBlock(       # This basic block is used to combine node features and edge features, making the functional form of our model
+                node_feats_irreps=node_feats_irreps_out,
+                target_irreps=hidden_irreps,
+                correlation=correlation,
+                num_elements=num_elements,
+                use_sc=use_sc_first,
+            )
+            self.products = torch.nn.ModuleList([prod])
+
+            self.readouts = torch.nn.ModuleList()

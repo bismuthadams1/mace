@@ -326,21 +326,54 @@ class LinearGraphLevelCoupling(torch.nn.Module):
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
         ):
-        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        super().__init__()
+        self.irreps_out = o3.Irreps("1x0e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
 
     
     def forward(
         self,
         x: torch.Tensor,  # [n_nodes, irreps_in.dim]
+        batch: torch.Tensor,  # [n_nodes, ]
     ) -> torch.Tensor:
         # x: [n_nodes, irreps_in.dim]
-        # 1) pool across the nodes → graph_feats: [irreps_in.dim]
-        graph_feats = scatter_sum(x, dim=-2)
-        return self.linear(graph_feats)  # [1, irreps_out.dim]
+        graph_feats = scatter_sum(x, batch ,dim=0) #[G,irreps_in.dim]
+        return self.linear(graph_feats).squeeze(-1) #pool over the graph [G,1] -> [G] scaler out
+    
+@compile_mode("script")
+class NonLinearGraphLevelCoupling(torch.nn.Module):
+    def __init__(
+        self,   
+        irreps_in: o3.Irreps,
+        MLP_irreps: o3.Irreps,
+        gate: Optional[Callable],
+        irrep_out: o3.Irreps = o3.Irreps("0e"),
+        num_heads: int = 1,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+        oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+    ):
+        super().__init__()
+        self.hidden_irreps = MLP_irreps
+        self.num_heads = num_heads
+        self.linear_1 = Linear(
+            irreps_in=irreps_in, irreps_out=self.hidden_irreps, cueq_config=cueq_config
+        )
+        self.non_linearity = nn.Activation(irreps_in=self.hidden_irreps, acts=[gate])
+        self.linear_2 = Linear(
+            irreps_in=self.hidden_irreps, irreps_out=irrep_out, cueq_config=cueq_config
+        )
 
-
-
+    def forward(
+        self,
+        x: torch.Tensor,  # [n_nodes, irreps_in.dim]
+        batch: torch.Tensor,  # [n_nodes, ]
+        ) -> torch.Tensor: 
+                # x: [n_nodes, irreps_in.dim]
+        graph_feats = scatter_sum(x, batch ,dim=0) #[G,irreps_in.dim]
+        x = self.non_linearity(self.linear_1(graph_feats).squeeze(-1))
+        x = self.linear_2(x).squeeze(-1)  # [n_nodes, len(heads)]
+        return x 
+    
 @compile_mode("script")
 class RadialEmbeddingBlock(torch.nn.Module):
     def __init__(

@@ -9,10 +9,14 @@ from .blocks import (
     LinearDipoleReadoutBlock,
     LinearNodeEmbeddingBlock,
     LinearReadoutBlock,
+    LinearGraphLevelCoupling,
+    LinearCouplingReadoutBlock,
     NonLinearBiasReadoutBlock,
     NonLinearDipoleReadoutBlock,
     NonLinearReadoutBlock,
+    NonLinearCouplingReadoutBlock,
     RadialEmbeddingBlock,
+    NonLinearGraphLevelCoupling,
     RealAgnosticAttResidualInteractionBlock,
     RealAgnosticDensityInteractionBlock,
     RealAgnosticDensityResidualInteractionBlock,
@@ -32,7 +36,7 @@ from .loss import (
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
 )
-from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE
+from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
 from .utils import (
@@ -59,6 +63,11 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearDipoleReadoutBlock": NonLinearDipoleReadoutBlock,
     "NonLinearReadoutBlock": NonLinearReadoutBlock,
     "NonLinearBiasReadoutBlock": NonLinearBiasReadoutBlock,
+    "LinearGraphLevelCoupling": LinearGraphLevelCoupling,
+    "NonLinearGraphLevelCoupling": NonLinearGraphLevelCoupling,
+    "LinearCouplingReadoutBlock": LinearCouplingReadoutBlock,
+    "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
+
 }
 
 scaling_classes: Dict[str, Callable] = {
@@ -93,6 +102,7 @@ __all__ = [
     "ScaleShiftMACE",
     "AtomicDipolesMACE",
     "EnergyDipolesMACE",
+    "CouplingClassifier",
     "WeightedEnergyForcesLoss",
     "WeightedForcesLoss",
     "WeightedEnergyForcesVirialsLoss",
@@ -108,4 +118,5 @@ __all__ = [
     "compute_avg_num_neighbors",
     "compute_statistics",
     "compute_fixed_charge_dipole",
+
 ]
