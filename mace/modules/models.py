@@ -13,7 +13,7 @@ from e3nn.util.jit import compile_mode
 
 from mace.modules.embeddings import GenericJointEmbedding
 from mace.modules.radial import ZBLBasis
-from mace.tools.scatter import scatter_sum
+from mace.tools.scatter import scatter_sum, scatter_mean, scatter_std
 
 from .blocks import (
     AtomicEnergiesBlock,
@@ -1192,9 +1192,30 @@ class CouplingClassifier(torch.nn.Module):
             )
             self.products = torch.nn.ModuleList([prod])
 
-            self.readouts = torch.nn.ModuleList()
-            self.readouts.append(LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False))  
-            
+            # self.readouts = torch.nn.ModuleList()
+            # self.readouts.append(LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False))  
+
+            # input_dim = self.readouts[0].irreps_out.num_irreps
+            input_dim = hidden_irreps.num_irreps
+
+            self.mapper = torch.nn.Sequential(
+                torch.nn.Linear(3,1),
+                torch.nn.GELU(),
+                torch.nn.Dropout(0.1),
+            )
+
+            mid_dim = MLP_irreps.num_irreps
+            self.attn = torch.nn.MultiheadAttention(
+                input_dim, 8, 0.05, batch_first=True
+            )
+
+            self.fc = torch.nn.Sequential(
+                torch.nn.Linear(input_dim, mid_dim),
+                torch.nn.GELU(),
+                torch.nn.Dropout(0.1),
+                torch.nn.Linear(mid_dim, mid_dim),
+            )
+
             for i in range(num_interactions - 1):
                 if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
                     assert (
@@ -1224,16 +1245,16 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
-                if i == num_interactions - 2:
-                    self.readouts.append(
-                        NonLinearCouplingReadoutBlock(
-                            hidden_irreps_out, MLP_irreps, gate, dipole_only=False
-                        )
-                    )
-                else:
-                    self.readouts.append(
-                        LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
-                    )
+                # if i == num_interactions - 2:
+                #     self.readouts.append(
+                #         NonLinearCouplingReadoutBlock(
+                #             hidden_irreps_out, MLP_irreps, gate, dipole_only=False
+                #         )
+                #     )
+                # else:
+                #     self.readouts.append(
+                #         LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
+                #     )
     def forward(
         self,
         data: Dict[str, torch.Tensor],
@@ -1267,9 +1288,10 @@ class CouplingClassifier(torch.nn.Module):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
 
-        coupling_probs = []
-        for interaction, product, readout in zip(
-            self.interactions, self.products, self.readouts
+        # coupling_probs = []
+        node_feats_total = []
+        for interaction, product in zip(
+            self.interactions, self.products
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1277,18 +1299,52 @@ class CouplingClassifier(torch.nn.Module):
                 edge_attrs=edge_attrs,
                 edge_feats=edge_feats,
                 edge_index=data["edge_index"],
-                cutoff=cutoff,
+                cutoff=cutoff, 
             )
             node_feats = product(
                 node_feats=node_feats,
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
-            node_out = readout(node_feats).squeeze(-1)
-            coupling_probs.append(node_out)
+            # node_out = readout(node_feats).squeeze(-1)
+            node_feats_total.append(node_feats)
+        
 
-        node_out = coupling_probs[0]
-        graph_logits = node_out.sum(dim=1)
+        node_out = node_feats_total[0]
+
+        inter_e = scatter_mean(
+            src= node_out,
+            index=data.batch.unsqueeze(-1),
+            dim=0,
+            dim_size=data.num_graphs,
+        )  # [n_graphs,16]
+        inter_std = scatter_std(
+            src=node_out,
+            index=data.batch.unsqueeze(-1),
+            dim=0,
+            dim_size=data.num_graphs,
+        )  # [n_graphs,16]
+        inter_sum = scatter_sum(
+            src=node_out,
+            index=data.batch.unsqueeze(-1),
+            dim=0,
+            dim_size=data.num_graphs,
+        )  # [n_graphs,16]
+
+        inter_e = inter_e[:, :, None]
+        inter_std = inter_std[:, :, None]
+        inter_sum = inter_sum[:, :, None]
+
+        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
+        att_momentums, _ = self.attn(
+            momentums, momentums, momentums
+        )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+        momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
+        momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
+        graph_logits = self.fc(momentums)  # [n_graphs,16] apply the fully connected layer
+
+        # graph_logits = node_out.sum(dim=1)
          #collect final logits for the nodes, will be shape [n_nodes, n_classes]
         # coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
         # LEAVE AS LOGITS FOR NOW FOR BETTER NUMERICAL STABILITY
