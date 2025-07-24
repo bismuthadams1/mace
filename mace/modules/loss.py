@@ -587,7 +587,7 @@ class ClassifierLoss(torch.nn.Module):
     def __init__(self, energy_weight=1.0) -> None:
         super().__init__()
         self.register_buffer(
-            "coupling_weight",
+            "energy_weight",
             torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
         )
 
@@ -598,4 +598,4 @@ class ClassifierLoss(torch.nn.Module):
         return self.energy_weight * loss
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(coupling_weight={self.coupling_weight:.3f})"
+        return f"{self.__class__.__name__}(coupling_weight={self.energy_weight:.3f})"
