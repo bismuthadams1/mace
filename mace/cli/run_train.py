@@ -459,6 +459,7 @@ def run(args) -> None:
         args.compute_stress = False
     elif args.model == "CouplingClassifier":
         atomic_energies = None
+        dipole_only = False
         args.compute_dipole = False
         args.compute_energy = False
         args.compute_forces = False
