@@ -35,6 +35,7 @@ from .loss import (
     WeightedEnergyForcesVirialsLoss,
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
+    ClassifierLoss
 )
 from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis

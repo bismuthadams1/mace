@@ -79,7 +79,11 @@ def weighted_mean_absolute_error_energy(
     )
     return reduce_loss(raw_loss, ddp)
 
-def weighted_coupling_loss(
+# -------------------------------------------------------------------------------
+# Binary Coupling Loss Function
+# -------------------------------------------------------------------------------
+
+def weighted_classifier_loss(
     ref: Batch,
     pred: TensorDict,
     ddp: Optional[bool] = None,
@@ -578,3 +582,20 @@ class WeightedEnergyForcesL1L2Loss(torch.nn.Module):
             f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f}, "
             f"forces_weight={self.forces_weight:.3f})"
         )
+    
+class ClassifierLoss(torch.nn.Module):
+    def __init__(self, energy_weight=1.0) -> None:
+        super().__init__()
+        self.register_buffer(
+            "energy_weight",
+            torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
+        )
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        loss = weighted_classifier_loss(ref, pred, ddp)
+        return self.energy_weight * loss
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(coupling_weight={self.energy_weight:.3f})"
