@@ -1213,7 +1213,7 @@ class CouplingClassifier(torch.nn.Module):
                 torch.nn.Linear(input_dim, mid_dim),
                 torch.nn.GELU(),
                 torch.nn.Dropout(0.1),
-                torch.nn.Linear(mid_dim, mid_dim),
+                torch.nn.Linear(mid_dim, 1),
             )
 
             for i in range(num_interactions - 1):
@@ -1342,7 +1342,7 @@ class CouplingClassifier(torch.nn.Module):
         )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
         momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
         momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
-        graph_logits = self.fc(momentums)  # [n_graphs,16] apply the fully connected layer
+        graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
 
         # graph_logits = node_out.sum(dim=1)
          #collect final logits for the nodes, will be shape [n_nodes, n_classes]
