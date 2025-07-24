@@ -864,6 +864,14 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "forces_weight",
         ],
     )
+
+    parser.add_argument(
+        "--mean_weighted_sampler",
+        help="mean weighted sampler for the training set",
+        type=str2bool,
+        default=None,
+    )
+    
     return parser
 
 
