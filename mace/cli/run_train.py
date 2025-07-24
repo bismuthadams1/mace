@@ -611,7 +611,7 @@ def run(args) -> None:
             )
             valid_samplers[head] = valid_sampler
 
-    if args.mean_weighted_sampler:
+    if args.mean_weighted_sampler is not None:
         logging.info('Weighted Random Sampler Modification')
         #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
 
