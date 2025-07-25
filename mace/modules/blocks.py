@@ -1358,7 +1358,7 @@ class ScaleShiftBlock(torch.nn.Module):
         return f"{self.__class__.__name__}(scale={formatted_scale}, shift={formatted_shift})"
 
 @compile_mode("script")
-class TransformerGraphReadoutBlock(nn.Module):
+class TransformerGraphReadoutBlock(torch.nn.Module):
     def __init__(
         self,
         irreps_in: o3.Irreps,
