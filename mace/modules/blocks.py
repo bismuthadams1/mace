@@ -1361,7 +1361,6 @@ class ScaleShiftBlock(torch.nn.Module):
 class TransformerGraphReadoutBlock(torch.nn.Module):
     def __init__(
         self,
-        irreps_in: o3.Irreps,
         irreps_out: o3.Irreps,
         MLP_irreps: o3.Irreps,
         cueq_config: Optional[CuEquivarianceConfig] = None,
