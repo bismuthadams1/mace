@@ -1318,7 +1318,7 @@ class CouplingClassifier(torch.nn.Module):
         inter_std = inter_std[:, :, None]
         inter_sum = inter_sum[:, :, None]
 
-        graph_logits = self.readouts.forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
 
         # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
         # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
