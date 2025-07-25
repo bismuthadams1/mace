@@ -28,6 +28,7 @@ from .blocks import (
     NonLinearReadoutBlock,
     RadialEmbeddingBlock,
     ScaleShiftBlock,
+    TransformerGraphReadoutBlock,
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -1192,29 +1193,11 @@ class CouplingClassifier(torch.nn.Module):
             )
             self.products = torch.nn.ModuleList([prod])
 
-            # self.readouts = torch.nn.ModuleList()
-            # self.readouts.append(LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False))  
+            self.readouts = torch.nn.ModuleList()
+            self.readouts.append(TransformerGraphReadoutBlock(
+                 hidden_irreps_out, MLP_irreps
+            ))  
 
-            # input_dim = self.readouts[0].irreps_out.num_irreps
-            input_dim = hidden_irreps.num_irreps
-
-            self.mapper = torch.nn.Sequential(
-                torch.nn.Linear(3,1),
-                torch.nn.GELU(),
-                torch.nn.Dropout(0.1),
-            )
-
-            mid_dim = MLP_irreps.num_irreps
-            self.attn = torch.nn.MultiheadAttention(
-                input_dim, 8, 0.05, batch_first=True
-            )
-
-            self.fc = torch.nn.Sequential(
-                torch.nn.Linear(input_dim, mid_dim),
-                torch.nn.GELU(),
-                torch.nn.Dropout(0.1),
-                torch.nn.Linear(mid_dim, 1),
-            )
 
             for i in range(num_interactions - 1):
                 if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
@@ -1314,37 +1297,39 @@ class CouplingClassifier(torch.nn.Module):
 
         inter_e = scatter_mean(
             src= node_out,
-            index=data.batch.unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1),
             dim=0,
-            dim_size=data.num_graphs,
+            dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_std = scatter_std(
             src=node_out,
-            index=data.batch.unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1),
             dim=0,
-            dim_size=data.num_graphs,
+            dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_sum = scatter_sum(
             src=node_out,
-            index=data.batch.unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1),
             dim=0,
-            dim_size=data.num_graphs,
+            dim_size=num_graphs,
         )  # [n_graphs,16]
 
         inter_e = inter_e[:, :, None]
         inter_std = inter_std[:, :, None]
         inter_sum = inter_sum[:, :, None]
 
-        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
-        momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
-        att_momentums, _ = self.attn(
-            momentums, momentums, momentums
-        )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
-        momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
-        momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
-        graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
+        graph_logits = self.readouts.forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
 
-        # graph_logits = node_out.sum(dim=1)
+        # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
+        # att_momentums, _ = self.attn(
+        #     momentums, momentums, momentums
+        # )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+        # momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
+        # momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
+        # graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
+
+        # # graph_logits = node_out.sum(dim=1)
          #collect final logits for the nodes, will be shape [n_nodes, n_classes]
         # coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
         # LEAVE AS LOGITS FOR NOW FOR BETTER NUMERICAL STABILITY

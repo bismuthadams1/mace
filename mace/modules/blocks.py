@@ -1356,3 +1356,49 @@ class ScaleShiftBlock(torch.nn.Module):
             else f"{self.shift.item():.4f}"
         )
         return f"{self.__class__.__name__}(scale={formatted_scale}, shift={formatted_shift})"
+
+@compile_mode("script")
+class TransformerGraphReadoutBlock(nn.Module):
+    def __init__(
+        self,
+        irreps_in: o3.Irreps,
+        irreps_out: o3.Irreps,
+        MLP_irreps: o3.Irreps,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+    ):
+        super().__init__()
+
+        input_dim = irreps_out.num_irreps
+
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(3,1),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.1),
+        )
+
+        mid_dim = MLP_irreps.num_irreps
+        self.attn = torch.nn.MultiheadAttention(
+            input_dim, 8, 0.05, batch_first=True
+        )
+
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, mid_dim),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(mid_dim, 1),
+        )
+
+    def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
+        inter_e, inter_std, inter_sum  = x
+        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
+        att_momentums, _ = self.attn(
+            momentums, momentums, momentums
+        )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+        momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
+        momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
+        graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
+
+        return graph_logits
+
+        # return self.linear(x)

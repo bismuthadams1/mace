@@ -24,6 +24,7 @@ from .blocks import (
     RealAgnosticResidualInteractionBlock,
     RealAgnosticResidualNonLinearInteractionBlock,
     ScaleShiftBlock,
+    TransformerGraphReadoutBlock,
 )
 from .loss import (
     DipoleSingleLoss,
@@ -68,6 +69,7 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearGraphLevelCoupling": NonLinearGraphLevelCoupling,
     "LinearCouplingReadoutBlock": LinearCouplingReadoutBlock,
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
+    "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout
 
 }
 
