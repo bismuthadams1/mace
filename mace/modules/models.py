@@ -1228,6 +1228,7 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
+                prods.append(prod)
                 # if i == num_interactions - 2:
                 #     final_irreps = hidden_irreps_out
                 #     # self.readouts.append(
