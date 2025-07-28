@@ -7,6 +7,7 @@
 from abc import abstractmethod
 from typing import Any, Callable, List, Optional, Tuple, Union
 
+import logging
 import numpy as np
 import torch.nn.functional
 from e3nn import nn, o3
@@ -1368,9 +1369,9 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         super().__init__()
 
         input_dim = irreps_out.dim # input dimension for the MLP
-        print('input_dim:', input_dim)
+        logging.info('input_dim:', input_dim)
         num_irreps = irreps_out.num_irreps
-        print('num_irreps:', num_irreps)
+        logging.info('num_irreps:', num_irreps)
         self.mapper = torch.nn.Sequential(
             torch.nn.Linear(3,1),
             torch.nn.GELU(),
@@ -1391,13 +1392,13 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
         inter_e, inter_std, inter_sum  = x
-        print('inter_e shape:')
-        print(inter_e.shape)
-        print(inter_e)
+        logging.info('inter_e shape:')
+        logging.info(inter_e.shape)
+        logging.info(inter_e)
         momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
         momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
-        print('momentums shape:')
-        print(momentums.shape)
+        logging.info('momentums shape:')
+        logging.info(momentums.shape)
         att_momentums, _ = self.attn(
             momentums, momentums, momentums
         )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
