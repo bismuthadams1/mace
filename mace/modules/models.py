@@ -1195,7 +1195,7 @@ class CouplingClassifier(torch.nn.Module):
 
             self.readouts = torch.nn.ModuleList()
 
-
+            prods = []
             for i in range(num_interactions - 1):
                 if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
                     assert (
@@ -1206,6 +1206,9 @@ class CouplingClassifier(torch.nn.Module):
                     ) #select only scalars for last layer
                 else:
                     hidden_irreps_out = hidden_irreps
+                
+                prods.append(hidden_irreps_out)
+
                 inter = interaction_cls(
                     node_attrs_irreps=node_attr_irreps,
                     node_feats_irreps=hidden_irreps,
@@ -1233,7 +1236,7 @@ class CouplingClassifier(torch.nn.Module):
                 #     self.readouts.append(TransformerGraphReadoutBlock(
                 #         final_irreps, MLP_irreps = MLP_irreps
                 #     ))  
-            final_irreps = self.products[-1].target_irreps
+            final_irreps = prods[-1]
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps = MLP_irreps
             ))  
