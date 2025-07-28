@@ -1367,13 +1367,13 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
     ):
         super().__init__()
 
-        input_dim = irreps_out.num_irreps
+        input_dim = irreps_out.dim # input dimension for the MLP
 
         self.mapper = torch.nn.Sequential(
             torch.nn.Linear(3,1),
             torch.nn.GELU(),
             torch.nn.Dropout(0.1),
-        )
+        ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
 
         mid_dim = MLP_irreps.num_irreps
         self.attn = torch.nn.MultiheadAttention(
@@ -1389,7 +1389,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
         inter_e, inter_std, inter_sum  = x
-        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
         momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
         att_momentums, _ = self.attn(
             momentums, momentums, momentums
