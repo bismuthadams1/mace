@@ -1195,7 +1195,7 @@ class CouplingClassifier(torch.nn.Module):
 
             self.readouts = torch.nn.ModuleList()
             self.readouts.append(TransformerGraphReadoutBlock(
-                node_feats_irreps_out, MLP_irreps
+                node_feats_irreps_out, MLP_irreps = MLP_irreps
             ))  
 
 
