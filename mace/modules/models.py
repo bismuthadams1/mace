@@ -1194,9 +1194,6 @@ class CouplingClassifier(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
-            self.readouts.append(TransformerGraphReadoutBlock(
-                node_feats_irreps_out, MLP_irreps = MLP_irreps
-            ))  
 
 
             for i in range(num_interactions - 1):
@@ -1229,15 +1226,18 @@ class CouplingClassifier(torch.nn.Module):
                 )
                 self.products.append(prod)
                 # if i == num_interactions - 2:
-                #     self.readouts.append(
-                #         NonLinearCouplingReadoutBlock(
-                #             hidden_irreps_out, MLP_irreps, gate, dipole_only=False
-                #         )
-                #     )
-                # else:
-                #     self.readouts.append(
-                #         LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
-                #     )
+                #     final_irreps = hidden_irreps_out
+                #     # self.readouts.append(
+                #     #     LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
+                #     # )
+                #     self.readouts.append(TransformerGraphReadoutBlock(
+                #         final_irreps, MLP_irreps = MLP_irreps
+                #     ))  
+            final_irreps = self.products[-1].target_irreps
+            self.readouts.append(TransformerGraphReadoutBlock(
+                final_irreps, MLP_irreps = MLP_irreps
+            ))  
+
     def forward(
         self,
         data: Dict[str, torch.Tensor],
