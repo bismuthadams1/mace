@@ -1392,13 +1392,10 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
         inter_e, inter_std, inter_sum  = x
-        # logging.info('inter_e shape:')
-        # logging.info(inter_e.shape)
-        # logging.info(inter_e)
+
         momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
         momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
-        # logging.info('momentums shape:')
-        # logging.info(momentums.shape)
+
         att_momentums, _ = self.attn(
             momentums, momentums, momentums
         )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
