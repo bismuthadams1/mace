@@ -467,6 +467,7 @@ def run(args) -> None:
         args.compute_virials = False
         args.compute_stress = False
         args.loss = "classifier_loss"
+        logging.info("Using total RMSE measure for CouplingClassifier model")
         args.error_table = "TotalRMSE"
     else:
         dipole_only = False
