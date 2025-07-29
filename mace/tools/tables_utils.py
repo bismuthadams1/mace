@@ -101,6 +101,13 @@ def create_error_table(
             "rel MU RMSE %",
         ]
 
+    elif table_type == "ClassifierLoss":
+        table.field_names = [
+            "config_type",
+            "Loss",
+            "Accuracy",
+        ]
+
     for name in sorted(all_data_loaders, key=custom_key):
         if any(skip_head in name for skip_head in skip_heads):
             logging.info(f"Skipping evaluation of {name} (in skip_heads list)")
@@ -241,6 +248,15 @@ def create_error_table(
                     f"{metrics['rel_rmse_f']:8.1f}",
                     f"{metrics['rmse_mu_per_atom'] * 1000:8.1f}",
                     f"{metrics['rel_rmse_mu']:8.1f}",
+                ]
+            )
+        
+        elif table_type == "ClassifierLoss":
+            table.add_row(
+                [
+                    name,
+                    f"{metrics['loss']:.4f}",
+                    f"{metrics['accuracy']:.2%}",
                 ]
             )
     return table
