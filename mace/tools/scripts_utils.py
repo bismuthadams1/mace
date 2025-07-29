@@ -22,6 +22,7 @@ from torch.optim.swa_utils import SWALR, AveragedModel
 from mace import data, modules, tools
 from mace.data import KeySpecification
 from mace.tools.train import SWAContainer
+from mace.modules import CouplingClassifier
 
 
 @dataclasses.dataclass
@@ -644,6 +645,8 @@ def get_swa(
     dipole_only: bool = False,
 ):
     assert dipole_only is False, "Stage Two for dipole fitting not implemented"
+    assert model is not CouplingClassifier, "Stage Two for CouplingClassifier not implemented"
+
     swas.append(True)
     if args.start_swa is None:
         args.start_swa = max(1, args.max_num_epochs // 4 * 3)
