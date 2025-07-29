@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
+import logging
+
 
 from mace.modules.embeddings import GenericJointEmbedding
 from mace.modules.radial import ZBLBasis
@@ -1195,7 +1197,11 @@ class CouplingClassifier(torch.nn.Module):
 
             self.readouts = torch.nn.ModuleList()
 
-            prods = []
+            irreps_by_layer = []
+            irreps_by_layer.append(hidden_irreps)
+
+            logging.info(f"number of interactions: {num_interactions}")
+
             for i in range(num_interactions - 1):
                 if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
                     assert (
@@ -1207,7 +1213,7 @@ class CouplingClassifier(torch.nn.Module):
                 else:
                     hidden_irreps_out = hidden_irreps
                 
-                prods.append(hidden_irreps_out)
+                irreps_by_layer.append(hidden_irreps_out)
 
                 inter = interaction_cls(
                     node_attrs_irreps=node_attr_irreps,
@@ -1228,7 +1234,6 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
-                prods.append(prod)
                 # if i == num_interactions - 2:
                 #     final_irreps = hidden_irreps_out
                 #     # self.readouts.append(
@@ -1236,8 +1241,10 @@ class CouplingClassifier(torch.nn.Module):
                 #     # )
                 #     self.readouts.append(TransformerGraphReadoutBlock(
                 #         final_irreps, MLP_irreps = MLP_irreps
-                #     ))  
-            final_irreps = prods[-1]
+                #     )) 
+            msg = f"irreps by layer: {irreps_by_layer}" 
+            logging.info(msg)
+            final_irreps = irreps_by_layer[-1]
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps = MLP_irreps
             ))  
@@ -1275,7 +1282,6 @@ class CouplingClassifier(torch.nn.Module):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
 
-        # coupling_probs = []
         node_feats_total = []
         for interaction, product in zip(
             self.interactions, self.products
