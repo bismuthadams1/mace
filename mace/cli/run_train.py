@@ -466,6 +466,7 @@ def run(args) -> None:
         args.compute_virials = False
         args.compute_stress = False
         args.loss = "classifier_loss"
+        args.error_table = "TotalRMSE"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
