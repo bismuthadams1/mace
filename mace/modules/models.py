@@ -1258,12 +1258,14 @@ class CouplingClassifier(torch.nn.Module):
         compute_stress: bool = False,
         compute_displacement: bool = False,
         compute_edge_forces: bool = False,  # pylint: disable=W0613
-        compute_atomic_stresses: bool = False,  # pylint: disable=W0613
+        compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
+        compute_coupling_class: bool = True,  # pylint: disable=W0613
     ) -> Dict[str, Optional[torch.Tensor]]:
         assert compute_force is False
         assert compute_virials is False
         assert compute_stress is False
         assert compute_displacement is False
+        assert compute_coupling_class is True
 
         # Setup
         data["node_attrs"].requires_grad_(True)

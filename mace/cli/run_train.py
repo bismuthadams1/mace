@@ -466,9 +466,10 @@ def run(args) -> None:
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
+        args.compute_coupling_class = True
         args.loss = "classifier_loss"
         logging.info("Using total RMSE measure for CouplingClassifier model")
-        args.error_table = "TotalRMSE"
+        args.error_table = "ClassifierLoss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":

@@ -55,6 +55,7 @@ def valid_err_log(
     eval_metrics["mode"] = "eval"
     eval_metrics["epoch"] = epoch
     eval_metrics["head"] = valid_loader_name
+    logging.info(f"eval metrics: {eval_metrics.keys()}")
     logger.log(eval_metrics)
     if epoch is None:
         inintial_phrase = "Initial"
@@ -135,6 +136,11 @@ def valid_err_log(
         error_mu = eval_metrics["rmse_mu_per_atom"] * 1e3
         logging.info(
             f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, RMSE_E_per_atom={error_e:8.2f} meV, RMSE_F={error_f:8.2f} meV / A, RMSE_Mu_per_atom={error_mu:8.2f} mDebye",
+        )
+    elif log_errors == "ClassifierLoss":
+       error_e = eval_metrics["accuracy"] 
+       logging.info(
+            f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, accuracy={error_e:.2%}",
         )
 
 
@@ -583,6 +589,9 @@ class MACELoss(Metric):
         self.add_state("mus", default=[], dist_reduce_fx="cat")
         self.add_state("delta_mus", default=[], dist_reduce_fx="cat")
         self.add_state("delta_mus_per_atom", default=[], dist_reduce_fx="cat")
+        #additional states for coupling classifier
+        self.add_state("correct_preds", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("total_preds", default=torch.tensor(0.0), dist_reduce_fx="sum")
 
     def update(self, batch, output):  # pylint: disable=arguments-differ
         loss = self.loss_fn(pred=output, ref=batch)
@@ -617,6 +626,17 @@ class MACELoss(Metric):
                 (batch.dipole - output["dipole"])
                 / (batch.ptr[1:] - batch.ptr[:-1]).unsqueeze(-1)
             )
+
+        if output.get("coupling_class") is not None:
+            #supply loss metric for BCE Cross Entropy
+            logits = output["coupling_class"]
+            labels = batch.coupling_class.to(logits.device)
+            probs = torch.sigmoid(logits)
+            preds = (probs > 0.5).long() #long tensor
+
+            self.correct_preds += (preds == labels).sum()
+            self.total_preds += torch.tensor(labels.numel(), device=preds.device) #number of elements in labels tensor
+
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         if isinstance(delta, list):
@@ -665,5 +685,9 @@ class MACELoss(Metric):
             aux["rmse_mu_per_atom"] = compute_rmse(delta_mus_per_atom)
             aux["rel_rmse_mu"] = compute_rel_rmse(delta_mus, mus)
             aux["q95_mu"] = compute_q95(delta_mus)
+        if self.total_preds > 0:
+            aux["accuracy"] = (
+                self.correct_preds.float() / self.total_preds
+            )
 
         return aux["loss"], aux
