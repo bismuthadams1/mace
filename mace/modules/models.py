@@ -1102,7 +1102,7 @@ class CouplingClassifier(torch.nn.Module):
         avg_num_neighbors: float,
         atomic_numbers: List[int],
         correlation: int,
-        gate: Optional[Callable],
+        gate: Optional[Callable],  #pylint:not currently using gate
         atomic_energies: Optional[None],
         apply_cutoff: bool = True,  # pylint: disable=unused-argument
         use_reduced_cg: bool = True,  # pylint: disable=unused-argument
@@ -1356,7 +1356,7 @@ class CouplingPredictor(torch.nn.Module):
         avg_num_neighbors: float,
         atomic_numbers: List[int],
         correlation: int,
-        gate: Optional[Callable],
+        gate: Optional[Callable],  #pylint:not currently using gate
         atomic_energies: Optional[None],
         apply_cutoff: bool = True,  # pylint: disable=unused-argument
         use_reduced_cg: bool = True,  # pylint: disable=unused-argument

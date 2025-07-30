@@ -101,11 +101,19 @@ def create_error_table(
             "rel MU RMSE %",
         ]
 
-    elif table_type == "ClassifierLoss":
+    elif table_type == "ClassifierAccuracy":
         table.field_names = [
             "config_type",
             "Loss",
             "Accuracy",
+        ]
+    
+    elif table_type == "GraphWideEnergyRMSE":
+        table.field_names = [
+            "config_type",
+            "Loss",
+            "RMSE Energy Graph"
+
         ]
 
     for name in sorted(all_data_loaders, key=custom_key):
@@ -251,7 +259,7 @@ def create_error_table(
                 ]
             )
         
-        elif table_type == "ClassifierLoss":
+        elif table_type == "ClassifierAccuracy":
             table.add_row(
                 [
                     name,
@@ -259,4 +267,15 @@ def create_error_table(
                     f"{metrics['accuracy']:.2%}",
                 ]
             )
+        
+        elif table_type == "GraphWideEnergyRMSE":
+            table.add_row(
+                [
+                    name,
+                    f"{metrics['loss']:.4f}",
+                    f"{metrics['rmse_energy_graph']:.2%}",
+                ]
+
+            )
+
     return table

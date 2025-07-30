@@ -650,7 +650,7 @@ def get_swa(
     dipole_only: bool = False,
 ):
     assert dipole_only is False, "Stage Two for dipole fitting not implemented"
-    assert model is not CouplingClassifier, "Stage Two for CouplingClassifier not implemented"
+    assert model is CouplingClassifier, "Stage Two for CouplingClassifier not implemented"
 
     swas.append(True)
     if args.start_swa is None:

@@ -291,7 +291,7 @@ def _build_model(
             **model_config,
             distance_transform=args.distance_transform,
             correlation=args.correlation,
-            gate=modules.gate_dict[args.gate],
+            gate=modules.gate_dict[args.gate], #unused
             interaction_cls_first=modules.interaction_classes[args.interaction_first],
             MLP_irreps=o3.Irreps(args.MLP_irreps),
             radial_MLP=ast.literal_eval(args.radial_MLP),
@@ -300,7 +300,15 @@ def _build_model(
     
     if args.model == "CouplingPredictor":
         return modules.CouplingPredictor(
-            
+            **model_config,
+            distance_transform=args.distance_transform,
+            correlation=args.correlation,
+            gate=modules.gate_dict[args.gate], #unused
+            interaction_cls_first=modules.interaction_classes[args.interaction_first],
+            MLP_irreps=o3.Irreps(args.MLP_irreps),
+            radial_MLP=ast.literal_eval(args.radial_MLP),
+            radial_type=args.radial_type,   
+
         )
 
 

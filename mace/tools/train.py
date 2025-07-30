@@ -142,7 +142,9 @@ def valid_err_log(
        logging.info(
             f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, accuracy={error_e:.2%}",
         )
-
+       
+    elif log_errors == "GraphWideEnergyLoss":
+            pass
 
 def train(
     model: torch.nn.Module,
@@ -592,6 +594,8 @@ class MACELoss(Metric):
         #additional states for coupling classifier
         self.add_state("correct_preds", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("total_preds", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("E_graph_computed", default = torch.tensor(0.0), dist_reduce_fx = "sum") #count how may energies in batch
+        self.add_state("delta_graph_es", default=[], dist_reduce_fx="cat")
 
     def update(self, batch, output):  # pylint: disable=arguments-differ
         loss = self.loss_fn(pred=output, ref=batch)
@@ -636,6 +640,12 @@ class MACELoss(Metric):
 
             self.correct_preds += (preds == labels).sum()
             self.total_preds += torch.tensor(labels.numel(), device=preds.device) #number of elements in labels tensor
+
+        # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
+        if output.get("effective_coupling") is not None and batch.energy is not None:
+            effective_coupling = output["effective_coupling"]
+            self.E_graph_computed += 1.0
+            self.delta_graph_es.append(batch.energy - output["effective_coupling"])
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
@@ -689,5 +699,9 @@ class MACELoss(Metric):
             aux["accuracy"] = (
                 self.correct_preds.float() / self.total_preds
             )
+        if self.E_graph_computed > 0:
+            delta_graph_es =  self.convert(self.delta_graph_es)
+            aux["mae_coupling"] = compute_mae(delta_graph_es)
+            aux["rmse_coupling"] = compute_rmse(delta_graph_es)
 
         return aux["loss"], aux
