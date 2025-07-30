@@ -647,6 +647,7 @@ class MACELoss(Metric):
 
         # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
         if output.get("effective_coupling") is not None and batch.energy is not None:
+            logging.info("getting effective coupling output")
             effective_coupling = output["effective_coupling"]
             self.E_graph_computed += 1.0
             self.delta_graph_es.append(batch.energy - effective_coupling)
