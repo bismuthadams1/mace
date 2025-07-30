@@ -700,7 +700,7 @@ def get_swa(
         logging.info(
             f"Stage Two (after {args.start_swa} epochs) with loss function: {loss_fn_energy}, with energy weight : {args.swa_energy_weight}, forces weight : {args.swa_forces_weight}, stress weight : {args.swa_stress_weight} and learning rate : {args.swa_lr}"
         )
-    elif args.loss == "graph_wide_energy":
+    elif args.loss == "graph_wide_energy_loss":
         loss_fn_energy = modules.GraphWideEnergyLoss(
             energy_weight=args.swa_energy_weight,
         )

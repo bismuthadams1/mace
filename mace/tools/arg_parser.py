@@ -879,6 +879,13 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str2bool,
         default=False,
     )
+
+    parser.add_argument(
+        "--graph_wide_energy",
+        help="Do we compute the graph-wide energy",
+        type=str2bool,
+        default=False,
+    )
     
     return parser
 

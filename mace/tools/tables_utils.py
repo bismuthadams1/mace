@@ -273,8 +273,8 @@ def create_error_table(
                 [
                     name,
                     f"{metrics['loss']:.4f}",
-                    f"{metrics['mae_graph_wide_coupling']:.2%}",
-                    f"{metrics['rmse_graph_wide_coupling']:.2%}",
+                    f"{metrics['mae_graph_wide_coupling']:.2}",
+                    f"{metrics['rmse_graph_wide_coupling']:.2}",
                 ]
 
             )

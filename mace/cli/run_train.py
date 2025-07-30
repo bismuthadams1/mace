@@ -474,7 +474,7 @@ def run(args) -> None:
         atomic_energies = None
         dipole_only = False
         args.compute_dipole = False
-        args.compute_energy = True
+        args.compute_energy = False
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
