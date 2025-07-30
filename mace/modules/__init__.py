@@ -118,6 +118,7 @@ __all__ = [
     "ClassifierLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",
+    "GraphWideEnergyLoss",
     "SymmetricContraction",
     "interaction_classes",
     "compute_mean_std_atomic_inter_energy",

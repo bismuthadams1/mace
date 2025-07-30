@@ -110,6 +110,14 @@ def parse_args() -> argparse.Namespace:
         required=False,
     )
 
+    parser.add_argument(
+        "--compute_coupling_class",
+        help="Do we compute coupling class",
+        action="store_true",
+        default=False,
+        required=False,
+    )
+
     return parser.parse_args()
 
 

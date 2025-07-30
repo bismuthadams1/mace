@@ -701,7 +701,7 @@ class MACELoss(Metric):
             )
         if self.E_graph_computed > 0:
             delta_graph_es =  self.convert(self.delta_graph_es)
-            aux["mae_coupling"] = compute_mae(delta_graph_es)
-            aux["rmse_coupling"] = compute_rmse(delta_graph_es)
+            aux["mae_graph_wide_coupling"] = compute_mae(delta_graph_es)
+            aux["rmse_graph_wide_coupling"] = compute_rmse(delta_graph_es)
 
         return aux["loss"], aux

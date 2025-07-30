@@ -872,6 +872,13 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str2bool,
         default=None,
     )
+
+    parser.add_argument(
+        "--compute_coupling_class",
+        help="Do we compute the coupling class?",
+        type=str2bool,
+        default=False,
+    )
     
     return parser
 
