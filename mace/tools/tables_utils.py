@@ -112,8 +112,8 @@ def create_error_table(
         table.field_names = [
             "config_type",
             "Loss",
-            "RMSE Energy Graph"
-
+            "MAE Graph Wide Coupling",
+            "RMSE Graph Wide Coupling",
         ]
 
     for name in sorted(all_data_loaders, key=custom_key):
@@ -273,7 +273,8 @@ def create_error_table(
                 [
                     name,
                     f"{metrics['loss']:.4f}",
-                    f"{metrics['rmse_energy_graph']:.2%}",
+                    f"{metrics['mae_graph_wide_coupling']:.2%}",
+                    f"{metrics['rmse_graph_wide_coupling']:.2%}",
                 ]
 
             )
