@@ -24,8 +24,6 @@ from .blocks import (
     LinearDipoleReadoutBlock,
     LinearNodeEmbeddingBlock,
     LinearReadoutBlock,
-    LinearCouplingReadoutBlock,
-    NonLinearCouplingReadoutBlock,
     NonLinearDipoleReadoutBlock,
     NonLinearReadoutBlock,
     RadialEmbeddingBlock,
