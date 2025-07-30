@@ -110,7 +110,7 @@ def weighted_graph_level_loss(
     raw_loss = (
         ref.weight
         * ref.energy_weight
-        * torch.square((ref["energy"] - pred["energy"]))
+        * torch.square((ref["energy"] - pred["effective_coupling"]))
     )
     return reduce_loss(raw_loss, ddp)
 
