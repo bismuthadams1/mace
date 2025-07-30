@@ -144,7 +144,11 @@ def valid_err_log(
         )
        
     elif log_errors == "GraphWideEnergyLoss":
-            pass
+        mae_error_e = eval_metrics["mae_graph_wide_coupling"]
+        rmse_error_e = eval_metrics["rmse_graph_wide_coupling"]
+        logging.info(
+            f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, MAE_E_graph={mae_error_e:.2%}, RMSE_E_graph={rmse_error_e:.2%}"
+        )
 
 def train(
     model: torch.nn.Module,
@@ -645,7 +649,7 @@ class MACELoss(Metric):
         if output.get("effective_coupling") is not None and batch.energy is not None:
             effective_coupling = output["effective_coupling"]
             self.E_graph_computed += 1.0
-            self.delta_graph_es.append(batch.energy - output["effective_coupling"])
+            self.delta_graph_es.append(batch.energy - effective_coupling)
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
