@@ -89,7 +89,7 @@ def weighted_classifier_loss(
     ddp: Optional[bool] = None,
 ) -> torch.Tensor:
     
-    per_graph_loss = torch.F.binary_cross_entropy_with_logits(
+    per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         pred["coupling_class"],  # probabilities in (0,1)
         ref["coupling_class"],     # 0.0 or 1.0
         reduction="none",
