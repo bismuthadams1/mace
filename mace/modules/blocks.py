@@ -235,23 +235,24 @@ class NonLinearDipoleReadoutBlock(torch.nn.Module):
 #         # 2) linear map down to [batch, 1]
 #         return self.linear(graph_feats)
 
-@compile_mode("script")
-class LinearCouplingReadoutBlock(torch.nn.Module):
-    def __init__(
-            self,
-            irreps_in: o3.Irreps,
-            cueq_config: Optional[CuEquivarianceConfig] = None,
-            oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
-            ):
-        super().__init__()
-        self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
-        self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
+# @compile_mode("script")
+# class LinearCouplingReadoutBlock(torch.nn.Module):
+#     def __init__(
+#             self,
+#             irreps_in: o3.Irreps,
+#             cueq_config: Optional[CuEquivarianceConfig] = None,
+#             oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
+#             ):
+#         super().__init__()
+#         self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+#         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        scalars = self.linear(x)
-        # graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
-        # logit = self.linear(graph_feats)
-        return scalars #torch.sigmoid(logit) #probability of coupling
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         scalars = self.linear(x)
+#         # graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
+#         # logit = self.linear(graph_feats)
+#         return scalars #torch.sigmoid(logit) #probability of coupling
+
 
 @compile_mode("script")
 class NonLinearCouplingReadoutBlock(torch.nn.Module):

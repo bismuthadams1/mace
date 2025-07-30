@@ -97,6 +97,15 @@ def weighted_classifier_loss(
     weighted = per_graph_loss * ref.weight * ref.energy_weight #Adjust weights to match imbalance in the dataset
     return reduce_loss(weighted, ddp)
 
+# ------------------------------------------------------------------------------
+# Graph-level Loss Functions
+# ------------------------------------------------------------------------------
+
+def weighted_graph_level_loss(
+    ref: Batch,
+    pred: TensorDict,
+    ddp: Optional[bool] = None,
+) -> torch.Tensor:
 
 # ------------------------------------------------------------------------------
 # Stress and Virials Loss Functions

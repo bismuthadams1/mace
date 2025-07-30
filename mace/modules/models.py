@@ -1332,19 +1332,6 @@ class CouplingClassifier(torch.nn.Module):
 
         graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
 
-        # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
-        # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
-        # att_momentums, _ = self.attn(
-        #     momentums, momentums, momentums
-        # )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
-        # momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
-        # momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
-        # graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
-
-        # # graph_logits = node_out.sum(dim=1)
-         #collect final logits for the nodes, will be shape [n_nodes, n_classes]
-        # coupling_prob = torch.sigmoid(graph_logits)  # [n_nodes, n_classes]
-        # LEAVE AS LOGITS FOR NOW FOR BETTER NUMERICAL STABILITY
         output = {
             "coupling_class": graph_logits  # [n_nodes, n_classes]
         }
@@ -1354,7 +1341,7 @@ class CouplingClassifier(torch.nn.Module):
 @compile_mode("script")
 class CouplingPredictor(torch.nn.Module):
 
-   def __init__(
+    def __init__(
         self, 
         r_max: float,
         num_bessel: int,
@@ -1463,3 +1450,141 @@ class CouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
+
+            self.products = torch.nn.ModuleList([prod])
+
+
+            irreps_by_layer = []
+            irreps_by_layer.append(hidden_irreps)
+
+            logging.info(f"number of interactions: {num_interactions}")
+
+            for i in range(num_interactions - 1):
+                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
+                    assert (
+                        len(hidden_irreps) > 1
+                    ), "To predict classifiers use at least l=1 hidden_irreps"
+                    hidden_irreps_out = str(
+                        hidden_irreps[0]
+                    ) #select only scalars for last layer
+                else:
+                    hidden_irreps_out = hidden_irreps
+                
+                irreps_by_layer.append(hidden_irreps_out)
+
+                inter = interaction_cls(
+                    node_attrs_irreps=node_attr_irreps,
+                    node_feats_irreps=hidden_irreps,
+                    edge_attrs_irreps=sh_irreps,
+                    edge_feats_irreps=edge_feats_irreps,
+                    target_irreps=interaction_irreps,
+                    hidden_irreps=hidden_irreps_out,
+                    avg_num_neighbors=avg_num_neighbors,
+                    radial_MLP=radial_MLP,
+                )
+                self.interactions.append(inter)
+                prod = EquivariantProductBasisBlock(
+                    node_feats_irreps=interaction_irreps,
+                    target_irreps=hidden_irreps_out,
+                    correlation=correlation,
+                    num_elements=num_elements,
+                    use_sc=True,
+                )
+                self.products.append(prod)
+      
+            msg = f"irreps by layer: {irreps_by_layer}" 
+            logging.info(msg)
+            final_irreps = irreps_by_layer[-1]
+            self.readouts.append(TransformerGraphReadoutBlock(
+                final_irreps, MLP_irreps = MLP_irreps
+            ))  
+
+    def forward(
+        self,
+        data: Dict[str, torch.Tensor],
+        training: bool = False,  # pylint: disable=W0613
+        compute_force: bool = False,
+        compute_virials: bool = False,
+        compute_stress: bool = False,
+        compute_displacement: bool = False,
+        compute_edge_forces: bool = False,  # pylint: disable=W0613
+        compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
+        compute_coupling_class: bool = True,  # pylint: disable=W0613
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        assert compute_force is False
+        assert compute_virials is False
+        assert compute_stress is False
+        assert compute_displacement is False
+        assert compute_coupling_class is True
+
+        # Setup
+        data["node_attrs"].requires_grad_(True)
+        data["positions"].requires_grad_(True)
+        num_graphs = data["ptr"].numel() - 1
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        vectors, lengths = get_edge_vectors_and_lengths(
+            positions=data["positions"],
+            edge_index=data["edge_index"],
+            shifts=data["shifts"],
+        )
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        node_feats_total = []
+        for interaction, product in zip(
+            self.interactions, self.products
+        ):
+            node_feats, sc = interaction(
+                node_attrs=data["node_attrs"],
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff, 
+            )
+            node_feats = product(
+                node_feats=node_feats,
+                sc=sc,
+                node_attrs=data["node_attrs"],
+            )
+            # node_out = readout(node_feats).squeeze(-1)
+            node_feats_total.append(node_feats)
+        
+
+        node_out = node_feats_total[0]
+
+        inter_e = scatter_mean(
+            src= node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+        inter_std = scatter_std(
+            src=node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+        inter_sum = scatter_sum(
+            src=node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+
+        inter_e = inter_e[:, :, None]
+        inter_std = inter_std[:, :, None]
+        inter_sum = inter_sum[:, :, None]
+
+        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+
+        output = {
+            "effective_coupling": graph_logits  # [n_nodes, n_classes]
+        }
+
+        return output
+    
