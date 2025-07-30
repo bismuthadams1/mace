@@ -297,6 +297,11 @@ def _build_model(
             radial_MLP=ast.literal_eval(args.radial_MLP),
             radial_type=args.radial_type,
         )
+    
+    if args.model == "CouplingPredictor":
+        return modules.CouplingPredictor(
+            
+        )
 
 
     raise RuntimeError(f"Unknown model: '{args.model}'")

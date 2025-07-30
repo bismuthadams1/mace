@@ -106,6 +106,13 @@ def weighted_graph_level_loss(
     pred: TensorDict,
     ddp: Optional[bool] = None,
 ) -> torch.Tensor:
+    
+    raw_loss = (
+        ref.weight
+        * ref.energy_weight
+        * torch.square((ref["energy"] - pred["energy"]))
+    )
+    return reduce_loss(raw_loss, ddp)
 
 # ------------------------------------------------------------------------------
 # Stress and Virials Loss Functions
@@ -608,3 +615,20 @@ class ClassifierLoss(torch.nn.Module):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(coupling_weight={self.energy_weight:.3f})"
+
+class GraphWideEnergyLoss(torch.nn.Module):
+    def __init__(self, energy_weight=1.0) -> None:
+        super().__init__()
+        self.register_buffer(
+            "energy_weight",
+            torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
+        )
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        loss = weighted_graph_level_loss(ref, pred, ddp)
+        return self.energy_weight * loss
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f})"

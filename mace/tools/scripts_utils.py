@@ -630,7 +630,12 @@ def get_loss_fn(
 
     elif args.loss == "classifier_loss":
         loss_fn = modules.ClassifierLoss(
-            energy_weight=args.energy_weight,
+            energy_weight=args.energy_weight, #change if needed
+        )
+
+    elif args.loss == "graph_wide_energy_loss":
+        loss_fn = modules.GraphWideEnergyLoss(
+            energy_weight=args.energy_weight, 
         )
     else:
         loss_fn = modules.WeightedEnergyForcesLoss(energy_weight=1.0, forces_weight=1.0)

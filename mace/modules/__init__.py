@@ -10,7 +10,7 @@ from .blocks import (
     LinearNodeEmbeddingBlock,
     LinearReadoutBlock,
     LinearGraphLevelCoupling,
-    LinearCouplingReadoutBlock,
+    # LinearCouplingReadoutBlock,
     NonLinearBiasReadoutBlock,
     NonLinearDipoleReadoutBlock,
     NonLinearReadoutBlock,
@@ -36,9 +36,10 @@ from .loss import (
     WeightedEnergyForcesVirialsLoss,
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
-    ClassifierLoss
+    ClassifierLoss,
+    GraphWideEnergyLoss,
 )
-from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier
+from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier, CouplingPredictor
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
 from .utils import (
@@ -67,9 +68,9 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearBiasReadoutBlock": NonLinearBiasReadoutBlock,
     "LinearGraphLevelCoupling": LinearGraphLevelCoupling,
     "NonLinearGraphLevelCoupling": NonLinearGraphLevelCoupling,
-    "LinearCouplingReadoutBlock": LinearCouplingReadoutBlock,
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
-    "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout
+    "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout,
+    "GraphWideEnergyLoss": GraphWideEnergyLoss
 
 }
 
@@ -106,6 +107,7 @@ __all__ = [
     "AtomicDipolesMACE",
     "EnergyDipolesMACE",
     "CouplingClassifier",
+    "CouplingPredictor",
     "WeightedEnergyForcesLoss",
     "WeightedForcesLoss",
     "WeightedEnergyForcesVirialsLoss",
@@ -113,6 +115,7 @@ __all__ = [
     "DipoleSingleLoss",
     "WeightedEnergyForcesDipoleLoss",
     "WeightedHuberEnergyForcesStressLoss",
+    "ClassifierLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",
     "SymmetricContraction",
