@@ -1370,9 +1370,9 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         super().__init__()
 
         input_dim = irreps_out.dim # input dimension for the MLP
-        logging.info('input_dim:', input_dim)
+        # logging.info('input_dim:', input_dim)
         num_irreps = irreps_out.num_irreps
-        logging.info('num_irreps:', num_irreps)
+        # logging.info('num_irreps:', num_irreps)
         self.mapper = torch.nn.Sequential(
             torch.nn.Linear(3,1),
             torch.nn.GELU(),

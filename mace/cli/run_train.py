@@ -479,7 +479,7 @@ def run(args) -> None:
         args.compute_virials = False
         args.compute_stress = False
         args.loss = "effective_coupling_loss"
-        args.error_table = "GraphWideEnergyRMSE"
+        args.error_table = "EffectiveCouplingLoss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
