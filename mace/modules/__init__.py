@@ -37,7 +37,7 @@ from .loss import (
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
     ClassifierLoss,
-    GraphWideEnergyLoss,
+    EffectiveCouplingLoss,
 )
 from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier, CouplingPredictor
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
@@ -70,7 +70,7 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearGraphLevelCoupling": NonLinearGraphLevelCoupling,
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
     "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout,
-    "GraphWideEnergyLoss": GraphWideEnergyLoss
+    "EffectiveCouplingLoss": EffectiveCouplingLoss
 
 }
 
@@ -118,7 +118,7 @@ __all__ = [
     "ClassifierLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",
-    "GraphWideEnergyLoss",
+    "EffectiveCouplingLoss",
     "SymmetricContraction",
     "interaction_classes",
     "compute_mean_std_atomic_inter_energy",

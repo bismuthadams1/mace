@@ -143,7 +143,7 @@ def valid_err_log(
             f"{inintial_phrase}: head: {valid_loader_name}, loss={valid_loss:8.8f}, accuracy={error_e:.2%}",
         )
        
-    elif log_errors == "GraphWideEnergyLoss":
+    elif log_errors == "EffectiveCouplingLoss":
         mae_error_e = eval_metrics["mae_graph_wide_coupling"]
         rmse_error_e = eval_metrics["rmse_graph_wide_coupling"]
         logging.info(
@@ -646,12 +646,12 @@ class MACELoss(Metric):
             self.total_preds += torch.tensor(labels.numel(), device=preds.device) #number of elements in labels tensor
 
         # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
-        if output.get("effective_coupling") is not None and batch.energy is not None:
+        if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
             logging.info("getting effective coupling output")
             effective_coupling = output["effective_coupling"]
             logging.info(f"effective coupling: {effective_coupling}")
             self.E_graph_computed += 1.0
-            self.delta_graph_es.append(batch.energy - effective_coupling)
+            self.delta_graph_es.append(batch.effective_coupling - effective_coupling)
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:

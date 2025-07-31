@@ -38,7 +38,7 @@ def configure_model(
         "stress": compute_stress,
         "dipoles": args.compute_dipole,
         "coupling_class": args.compute_coupling_class,
-        # "graph_wide_energy": args.graph_wide_energy,
+        "effective_coupling": args.graph_wide_energy,
     }
     logging.info(
         f"During training the following quantities will be reported: {', '.join([f'{report}' for report, value in output_args.items() if value])}"

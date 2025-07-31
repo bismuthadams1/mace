@@ -478,7 +478,7 @@ def run(args) -> None:
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
-        args.loss = "graph_wide_energy_loss"
+        args.loss = "effective_coupling_loss"
         args.error_table = "GraphWideEnergyRMSE"
     else:
         dipole_only = False
@@ -628,8 +628,8 @@ def run(args) -> None:
 
     if args.mean_weighted_sampler is not None:
         logging.info('Weighted Random Sampler Modification')
-        # if args.model == "CouplingClassifier":
-        #     head_key = "coupling_class"
+        if args.model == "CouplingPredictor":
+            head_key = "coupling_class"
         # else:
         #     head_key = "energy"
         #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======

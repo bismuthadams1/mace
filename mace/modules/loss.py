@@ -110,7 +110,7 @@ def weighted_graph_level_loss(
     raw_loss = (
         ref.weight
         * ref.energy_weight
-        * torch.square((ref["energy"] - pred["effective_coupling"]))
+        * torch.square((ref["effective_coupling"] - pred["effective_coupling"]))
     )
     return reduce_loss(raw_loss, ddp)
 
@@ -616,7 +616,7 @@ class ClassifierLoss(torch.nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(coupling_weight={self.energy_weight:.3f})"
 
-class GraphWideEnergyLoss(torch.nn.Module):
+class EffectiveCouplingLoss(torch.nn.Module):
     def __init__(self, energy_weight=1.0) -> None:
         super().__init__()
         self.register_buffer(

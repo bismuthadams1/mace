@@ -48,6 +48,7 @@ class AtomicData(torch_geometric.data.Data):
     dipole_weight: torch.Tensor
     charges_weight: torch.Tensor
     coupling_class: torch.Tensor
+    effective_coupling: torch.Tensor
 
     def __init__(
         self,
@@ -75,6 +76,7 @@ class AtomicData(torch_geometric.data.Data):
         total_charge: Optional[torch.Tensor] = None,  # [,]
         total_spin: Optional[torch.Tensor] = None,  # [,]
         coupling_class: Optional[torch.Tensor] = None,  # [,]
+        effective_coupling: Optional[torch.Tensor] = None,
     ):
         # Check shapes
         num_nodes = node_attrs.shape[0]
@@ -103,6 +105,7 @@ class AtomicData(torch_geometric.data.Data):
         assert total_charge is None or len(total_charge.shape) == 0
         assert total_spin is None or len(total_spin.shape) == 0
         assert coupling_class is None or len(coupling_class.shape) == 0
+        assert effective_coupling is None or len(effective_coupling.shape) == 0
         # Aggregate data
         data = {
             "num_nodes": num_nodes,
@@ -130,6 +133,7 @@ class AtomicData(torch_geometric.data.Data):
             "total_charge": total_charge,
             "total_spin": total_spin,
             "coupling_class": coupling_class,
+            "effective_coupling": effective_coupling,
         }
         super().__init__(**data)
 
@@ -301,7 +305,15 @@ class AtomicData(torch_geometric.data.Data):
         )
 
         coupling_class = (energy > 0.0).to(dtype=torch.float32)
-        
+
+        #We store effective coupling in the energy field for now
+        effective_coupling = (
+            torch.tensor(
+                config.properties.get("energy"), dtype=torch.get_default_dtype()
+            )
+            if config.properties.get("energy") is not None
+            else torch.tensor(0.0, dtype=torch.get_default_dtype())
+        )
 
         return cls(
             edge_index=torch.tensor(edge_index, dtype=torch.long),
@@ -327,7 +339,8 @@ class AtomicData(torch_geometric.data.Data):
             elec_temp=elec_temp,
             total_charge=total_charge,
             total_spin=total_spin,
-            coupling_class = coupling_class
+            coupling_class = coupling_class,
+            effective_coupling = effective_coupling,
         )
 
 

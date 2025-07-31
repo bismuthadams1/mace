@@ -268,7 +268,7 @@ def create_error_table(
                 ]
             )
         
-        elif table_type == "GraphWideEnergyRMSE":
+        elif table_type == "GraphWideCouplingRMSE":
             table.add_row(
                 [
                     name,

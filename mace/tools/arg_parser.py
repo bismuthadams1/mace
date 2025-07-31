@@ -881,7 +881,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--graph_wide_energy",
+        "--effective_coupling",
         help="Do we compute the graph-wide energy",
         type=str2bool,
         default=False,
