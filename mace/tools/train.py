@@ -650,8 +650,11 @@ class MACELoss(Metric):
             logging.info("getting effective coupling output")
             effective_coupling = output["effective_coupling"]
             logging.info(f"effective coupling: {effective_coupling}")
+            logging.info(f"batch effective coupling {batch.effective_coupling}")
             self.E_graph_computed += 1.0
-            self.delta_graph_es.append(batch.effective_coupling - effective_coupling)
+            self.delta_graph_es.append(
+                (batch.effective_coupling - effective_coupling)
+            )
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
