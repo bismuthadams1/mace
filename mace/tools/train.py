@@ -420,6 +420,17 @@ def take_step(
         )
         loss = loss_fn(pred=output, ref=batch)
         loss.backward()
+        #monitor the gradient
+        total_norm = 0.0
+        for name, p in model.named_parameters():
+            if p.grad is not None:
+                gnorm = p.grad.norm().item()
+                total_norm += gnorm**2
+                if "readouts.0" in name:
+                    logging.info(f"    grad ‖{name}‖ = {gnorm:.6f}")
+        total_norm = total_norm**0.5
+        logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
+        #-------------------
         if max_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
 
@@ -497,6 +508,17 @@ def take_step_lbfgs(
 
             batch_loss.backward()
             total_loss += batch_loss
+            total_norm = 0.0
+            #monitor the gradient
+            for name, p in model.named_parameters():
+                if p.grad is not None:
+                    gnorm = p.grad.norm().item()
+                    total_norm += gnorm**2
+                    if "readouts.0" in name:
+                        logging.info(f"    grad ‖{name}‖ = {gnorm:.6f}")
+            total_norm = total_norm**0.5
+            logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
+            #----------------------------------------
 
         if max_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
@@ -649,8 +671,8 @@ class MACELoss(Metric):
         if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
             logging.info("getting effective coupling output")
             effective_coupling = output["effective_coupling"]
-            logging.info(f"effective coupling: {effective_coupling}")
-            logging.info(f"batch effective coupling {batch.effective_coupling}")
+            logging.info(f"effective coupling predicted: {effective_coupling}")
+            logging.info(f"effective coupling supplied {batch.effective_coupling}")
             self.E_graph_computed += 1.0
             self.delta_graph_es.append(
                 (batch.effective_coupling - effective_coupling)

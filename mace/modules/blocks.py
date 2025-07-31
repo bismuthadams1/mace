@@ -1368,10 +1368,12 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
+        
+        self.pool_norm = torch.nn.LayerNorm(3)
 
         input_dim = irreps_out.dim # input dimension for the MLP
         # logging.info('input_dim:', input_dim)
-        num_irreps = irreps_out.num_irreps
+        # num_irreps = irreps_out.num_irreps
         # logging.info('num_irreps:', num_irreps)
         self.mapper = torch.nn.Sequential(
             torch.nn.Linear(3,1),
@@ -1394,8 +1396,9 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
         inter_e, inter_std, inter_sum  = x
 
-        momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
+        momentums = self.mapper(self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2))) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
         momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
+        logging.info(f"momentums into attention: {momentums}")
 
         att_momentums, _ = self.attn(
             momentums, momentums, momentums

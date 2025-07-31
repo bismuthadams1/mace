@@ -8,6 +8,7 @@ from typing import Optional
 
 import torch
 import torch.distributed as dist
+import logging
 
 from mace.tools import TensorDict
 from mace.tools.torch_geometric import Batch
@@ -101,7 +102,7 @@ def weighted_classifier_loss(
 # Graph-level Loss Functions
 # ------------------------------------------------------------------------------
 
-def weighted_graph_level_loss(
+def weighted_squared_graph_level_loss(
     ref: Batch,
     pred: TensorDict,
     ddp: Optional[bool] = None,
@@ -112,7 +113,24 @@ def weighted_graph_level_loss(
         * ref.energy_weight
         * torch.square((ref["effective_coupling"] - pred["effective_coupling"]))
     )
+
+    logging.info(f"raw loss from graph level loss: {raw_loss}")
+
     return reduce_loss(raw_loss, ddp)
+
+def weighted_graph_absolute_loss(
+    ref: Batch,
+    pred: TensorDict,
+    ddp: Optional[bool] = None,
+) -> torch.Tensor:
+    
+    raw_loss = (
+        ref.weight
+        * ref.energy_weight
+        * torch.abs((ref["effective_coupling"] - pred["effective_coupling"]))
+    )
+
+    logging.info(f"raw loss from graph level loss: {raw_loss}")
 
 # ------------------------------------------------------------------------------
 # Stress and Virials Loss Functions
@@ -627,7 +645,8 @@ class EffectiveCouplingLoss(torch.nn.Module):
     def forward(
         self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
     ) -> torch.Tensor:
-        loss = weighted_graph_level_loss(ref, pred, ddp)
+        # loss = weighted_squared_graph_level_loss(ref, pred, ddp)
+        loss = weighted_graph_absolute_loss(ref, pred, ddp)
         return self.energy_weight * loss
 
     def __repr__(self):

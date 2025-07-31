@@ -108,7 +108,7 @@ def create_error_table(
             "Accuracy",
         ]
     
-    elif table_type == "GraphWideEnergyRMSE":
+    elif table_type == "GraphWideCouplingRMSE":
         table.field_names = [
             "config_type",
             "Loss",
@@ -268,7 +268,7 @@ def create_error_table(
                 ]
             )
         
-        elif table_type == "GraphWideCouplingRMSE":
+        elif table_type == "EffectiveCouplingLoss":
             table.add_row(
                 [
                     name,

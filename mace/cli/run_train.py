@@ -629,12 +629,14 @@ def run(args) -> None:
     if args.mean_weighted_sampler is not None:
         logging.info('Weighted Random Sampler Modification')
         if args.model == "CouplingPredictor":
+            head_key = "effective_coupling"
+        elif args.model == "CouplingClassifier":
             head_key = "coupling_class"
-        # else:
-        #     head_key = "energy"
+        else:
+            head_key = "energy"
         #======== MODIFICATIONS HERE FOR A WEIGHTED RANDOM SAMPLER=======
 
-        all_jeffs = [data["coupling_class"] for data in train_set]   # adjust if your target key is different
+        all_jeffs = [data[head_key] for data in train_set]   # adjust if your target key is different
         logging.info(all_jeffs)
         is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
         weights   = torch.where(is_zero, torch.ones_like(is_zero), torch.ones_like(is_zero) * 10.0)

@@ -1448,6 +1448,7 @@ class CouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
+            # self.readouts.append(LinearReadoutBlock(hidden_irreps, dipole_only=False))
 
             self.products = torch.nn.ModuleList([prod])
 
