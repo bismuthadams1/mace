@@ -89,7 +89,8 @@ def weighted_classifier_loss(
     pred: TensorDict,
     ddp: Optional[bool] = None,
 ) -> torch.Tensor:
-    
+    logging.info(f"classifier in {ref["coupling_class"]}")
+    logging.info(f"classifier out { pred["coupling_class"]}")
     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         pred["coupling_class"],  # probabilities in (0,1)
         ref["coupling_class"],     # 0.0 or 1.0
@@ -124,6 +125,7 @@ def weighted_graph_absolute_loss(
     ddp: Optional[bool] = None,
 ) -> torch.Tensor:
     
+    logging.info(f'effective coupling in {ref["effective_coupling"]}')
     raw_loss = (
         ref.weight
         * ref.energy_weight

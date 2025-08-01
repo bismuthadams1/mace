@@ -8,6 +8,7 @@ import dataclasses
 import logging
 import time
 from contextlib import nullcontext
+import traceback
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -292,6 +293,7 @@ def train(
                         plotter.plot(epoch, model_to_evaluate, rank)
                     except Exception as e:  # pylint: disable=broad-except
                         logging.debug(f"Plotting failed: {e}")
+                        logging.info(f"exception: {traceback.format_exc()}")
                 valid_loss = (
                     valid_loss_head  # consider only the last head for the checkpoint
                 )

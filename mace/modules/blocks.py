@@ -1409,4 +1409,3 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         return graph_logits
 
-        # return self.linear(x)

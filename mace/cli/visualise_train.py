@@ -90,6 +90,27 @@ error_type = {
             ("dipole", "Dipole per atom [Debye]"),
         ],
     ),
+    "EffectiveCouplingLoss": (
+        [
+            ("mae_graph_wide_coupling","MAE Graph Wide Coupling [meV]"),
+            ("rmse_graph_wide_coupling","RMSE Graph Wide Coupling [meV]")
+
+        ],
+        [   
+            ("effective_coupling", "Effective Coupling [meV]"),
+
+        ]
+    ),
+    "ClassifierAccuracy" : (
+        [
+            ("accuracy", "Accuracy of Classifier [%]"),
+        ],
+        [
+            ("coupling_class", "Coupling Class"),
+
+        ]
+    )
+
 }
 
 
@@ -140,6 +161,9 @@ class TrainingPlotter:
             results for results in parse_training_results(self.results_dir)
         )
         labels, quantities = error_type[self.table_type]
+
+        logging.info("quantities:")
+        logging.info(quantities)
 
         for head in self.heads:
             fig = plt.figure(layout="constrained", figsize=(10, 6))
@@ -284,6 +308,7 @@ def plot_inference_from_results(
     quantities: List[str],
 ) -> None:
 
+    logging.info(f"axis: {axes}")
     for ax, quantity in zip(axes, quantities):
         key, label = quantity
 
@@ -303,6 +328,8 @@ def plot_inference_from_results(
 
             # Initialize scatter to None
             scatter = None
+            logging.info("result keys:")
+            logging.info(result.keys())
 
             if key == "energy" and "energy" in result:
                 scatter = ax.scatter(
@@ -347,6 +374,35 @@ def plot_inference_from_results(
                     marker=marker,
                     color=fixed_color_train_valid,
                     label=name,
+                )
+
+            elif key == "coupling_class" and "coupling_class" in result:
+                scatter = ax.scatter(
+                    result["coupling_class"]["reference"],
+                    result["coupling_class"]["predicted"],
+                    marker=marker,
+                    color=fixed_color_train_valid,
+                    label=name,  
+                )
+
+            
+            elif key == "coupling_class" and "coupling_class" in result:
+                scatter = ax.hist(
+                    result["coupling_class"]["reference"],
+                    result["coupling_class"]["predicted"],
+                    # marker=marker,
+                    color=fixed_color_train_valid,
+                    label=name,  
+                    bins = 0.001
+                )
+            
+            elif key == "effective_coupling" and "effective_coupling" in result:
+                scatter = ax.scatter(
+                    result["effective_coupling"]["reference"],
+                    result["effective_coupling"]["predicted"],
+                    marker=marker,
+                    color=fixed_color_train_valid,
+                    label=name,  
                 )
 
             # Add each train/valid dataset's name to the legend if scatter was assigned

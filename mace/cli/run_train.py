@@ -5,6 +5,7 @@
 ###########################################################################################
 
 import ast
+import traceback
 import glob
 import json
 import logging
@@ -12,6 +13,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional
+
 
 import torch.distributed
 from e3nn.util import jit
@@ -638,7 +640,8 @@ def run(args) -> None:
 
         all_jeffs = [data[head_key] for data in train_set]   # adjust if your target key is different
         logging.info(all_jeffs)
-        is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.float)
+        is_zero   = torch.tensor([j == 0.0 for j in all_jeffs], dtype=torch.bool)
+        logging.info(is_zero)
         weights   = torch.where(is_zero, torch.ones_like(is_zero), torch.ones_like(is_zero) * 10.0)
         
         train_sampler = WeightedRandomSampler(
@@ -1041,6 +1044,7 @@ def run(args) -> None:
                 plotter.plot(epoch, model_to_evaluate, rank)
             except Exception as e:  # pylint: disable=W0718
                 logging.debug(f"Plotting failed: {e}")
+                logging.info(f"traceback {traceback.format_exc()}")
 
         if args.distributed:
             torch.distributed.barrier()
