@@ -132,6 +132,9 @@ def weighted_graph_absolute_loss(
 
     logging.info(f"raw loss from graph level loss: {raw_loss}")
 
+    return reduce_loss(raw_loss, ddp)
+
+
 # ------------------------------------------------------------------------------
 # Stress and Virials Loss Functions
 # ------------------------------------------------------------------------------
