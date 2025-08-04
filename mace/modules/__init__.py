@@ -133,5 +133,5 @@ __all__ = [
     "compute_avg_num_neighbors",
     "compute_statistics",
     "compute_fixed_charge_dipole",
-
+    "GatedCouplingPredictor",
 ]

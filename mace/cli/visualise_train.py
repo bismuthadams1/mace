@@ -552,6 +552,10 @@ class InferenceMetric(Metric):
         self.add_state("pred_virials", default=[], dist_reduce_fx="cat")
         self.add_state("ref_dipole", default=[], dist_reduce_fx="cat")
         self.add_state("pred_dipole", default=[], dist_reduce_fx="cat")
+        self.add_state("ref_coupling_class", default=[], dist_reduce_fx="cat")
+        self.add_state("pred_coupling_class", default=[], dist_reduce_fx="cat")
+        self.add_state("ref_effective_coupling", default=[], dist_reduce_fx="cat")
+        self.add_state("pred_effective_coupling", default=[], dist_reduce_fx="cat")
 
         # Per-atom normalized values
         self.add_state("ref_energies_per_atom", default=[], dist_reduce_fx="cat")
@@ -570,6 +574,12 @@ class InferenceMetric(Metric):
         self.add_state("n_stress", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("n_virials", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("n_dipole", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("n_classifiers", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("n_couplings", default=torch.tensor(0.0), dist_reduce_fx="sum")
+
+        # Electronic coupling metrics
+        self.add_state("coupling_accuracy", default = [], dist_reduce_fx="cat")
+        # self.add_state("coupling predicted", default = [], dist_reduce_fx="cat")
 
     def update(self, batch, output):  # pylint: disable=arguments-differ
         """Update metric states with new batch data."""
@@ -616,6 +626,18 @@ class InferenceMetric(Metric):
             atoms_per_config_3d = atoms_per_config.view(-1, 1)
             self.ref_dipole_per_atom.append(batch.dipole / atoms_per_config_3d)
             self.pred_dipole_per_atom.append(output["dipole"] / atoms_per_config_3d)
+
+        # Coupling class
+        if output.get("coupling_class") is not None and batch.coupling_class is not None:
+            self.n_classifiers += 1.0
+            self.ref_coupling_class.append(batch.coupling_class)
+            self.pred_coupling_class.append(output["coupling_class"])
+
+        if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
+            self.n_couplings += 1.0
+            self.ref_effective_coupling.append(batch.effective_coupling)
+            self.pred_effective_coupling.append(output["effective_coupling"])
+
 
     def _process_data(self, ref_list, pred_list):
         # Handle different possible states of ref_list and pred_list in distributed mode
@@ -693,4 +715,24 @@ class InferenceMetric(Metric):
                 "reference_per_atom": ref_d_pa,
                 "predicted_per_atom": pred_d_pa,
             }
+
+        # Process classifier
+        if self.n_classifiers:
+            ref_c, pred_c = self._process_data(self.ref_coupling_class, self.pred_coupling_class)
+
+            results["coupling_class"] = {
+                "reference": ref_c,
+                "predicted": pred_c,
+            }
+
+
+        # Process n_couplings
+        if self.n_couplings:
+            ref_ec, pred_ec = self._process_data(self.ref_effective_coupling, self.pred_effective_coupling)
+
+            results["effective_coupling"] = {
+                "reference": ref_ec,
+                "predicted": pred_ec
+            }
+
         return results
