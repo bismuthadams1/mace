@@ -39,7 +39,15 @@ from .loss import (
     ClassifierLoss,
     EffectiveCouplingLoss,
 )
-from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE, CouplingClassifier, CouplingPredictor
+from .models import (
+    MACE, 
+    AtomicDipolesMACE, 
+    EnergyDipolesMACE, 
+    ScaleShiftMACE, 
+    CouplingClassifier, 
+    CouplingPredictor,
+    GatedCouplingPredictor
+)
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
 from .utils import (

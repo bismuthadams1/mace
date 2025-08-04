@@ -1337,6 +1337,263 @@ class CouplingClassifier(torch.nn.Module):
         return output
         
 @compile_mode("script")
+class GatedCouplingPredictor(torch.nn.Module):
+
+    def __init__(
+        self, 
+        r_max: float,
+        num_bessel: int,
+        num_polynomial_cutoff: int,
+        max_ell: int,
+        interaction_cls: Type[InteractionBlock],
+        interaction_cls_first: Type[InteractionBlock],
+        num_interactions: int,
+        num_elements: int,
+        hidden_irreps: o3.Irreps,
+        MLP_irreps: o3.Irreps,  #o3 is a module from e3nn which calculates the irreps in 3D space
+        avg_num_neighbors: float,
+        atomic_numbers: List[int],
+        correlation: int,
+        gate: Optional[Callable],  #pylint:not currently using gate
+        atomic_energies: Optional[None],
+        apply_cutoff: bool = True,  # pylint: disable=unused-argument
+        use_reduced_cg: bool = True,  # pylint: disable=unused-argument
+        use_so3: bool = False,  # pylint: disable=unused-argument
+        distance_transform: str = "None",  # pylint: disable=unused-argument
+        radial_type: Optional[str] = "bessel",
+        radial_MLP: Optional[List[int]] = None,
+        cueq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
+        oeq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
+        edge_irreps: Optional[o3.Irreps] = None,  # pylint: disable=unused-argument
+        ):
+            """Initializes a coupling classifier for MACE.
+
+            r_max: float
+                The maximum distance for the radial embedding.
+            num_bessel: int
+                The number of Bessel functions to use in the radial embedding.
+            num_polynomial_cutoff: int
+                The cut-off polynomial envelope power.
+            max_ell: int    
+                The maximum SO(3) irreps dimension. to use in the model (during interactions). 
+                SO(3) is the rotation group in 3D space.
+            interaction_cls: Type[InteractionBlock]
+                The class of interaction block to use for the model.
+            interaction_cls_first: Type[InteractionBlock]
+                The class of interaction block to use for the first layer of the model.
+            num_interactions: int
+                The number of interaction layers in the model.
+            
+            """ 
+            super().__init__()
+            self.register_buffer(
+                "atomic_numbers", torch.tensor(atomic_numbers, dtype=torch.int64)
+            )
+            self.register_buffer("r_max", torch.tensor(r_max, dtype=torch.float64))
+            self.register_buffer(
+                "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
+            )
+            assert atomic_energies is None
+
+            # Embedding
+            node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) 
+            node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
+            self.node_embedding = LinearNodeEmbeddingBlock(
+                irreps_in=node_attr_irreps, irreps_out=node_feats_irreps
+            )
+            self.radial_embedding = RadialEmbeddingBlock(
+                r_max=r_max,
+                num_bessel=num_bessel,
+                num_polynomial_cutoff=num_polynomial_cutoff,
+                radial_type=radial_type,
+            )
+
+            edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e") #number of edge feature channels
+
+            sh_irreps = o3.Irreps.spherical_harmonics(max_ell)
+            num_features = hidden_irreps.count(o3.Irrep(0, 1))
+            interaction_irreps = (sh_irreps * num_features).sort()[0].simplify()
+            self.spherical_harmonics = o3.SphericalHarmonics(
+                sh_irreps, normalize=True, normalization="component"
+            )
+            if radial_MLP is None:
+                radial_MLP = [64, 64, 64]   
+            
+            # Interactions and readouts
+            inter = interaction_cls_first(
+                node_attrs_irreps=node_attr_irreps,
+                node_feats_irreps=node_feats_irreps,
+                edge_attrs_irreps=sh_irreps,        
+                edge_feats_irreps=edge_feats_irreps,
+                target_irreps=interaction_irreps,
+                hidden_irreps=hidden_irreps,
+                avg_num_neighbors=avg_num_neighbors,
+                radial_MLP=radial_MLP,
+            )
+            self.interactions = torch.nn.ModuleList([inter])
+
+            # Use the appropriate self connection at the first layer
+            use_sc_first = False
+            if "Residual" in str(interaction_cls_first):
+                use_sc_first = True
+
+            node_feats_irreps_out = inter.target_irreps
+            prod = EquivariantProductBasisBlock(       # This basic block is used to combine node features and edge features, making the functional form of our model
+                node_feats_irreps=node_feats_irreps_out,
+                target_irreps=hidden_irreps,
+                correlation=correlation,
+                num_elements=num_elements,
+                use_sc=use_sc_first,
+            )
+            self.products = torch.nn.ModuleList([prod])
+
+            self.readouts = torch.nn.ModuleList()
+            # self.readouts.append(LinearReadoutBlock(hidden_irreps, dipole_only=False))
+
+            self.products = torch.nn.ModuleList([prod])
+
+            self.pool_norm = torch.nn.LayerNorm(3)
+
+            irreps_by_layer = []
+            irreps_by_layer.append(hidden_irreps)
+
+            logging.info(f"number of interactions: {num_interactions}")
+
+            for i in range(num_interactions - 1):
+                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
+                    assert (
+                        len(hidden_irreps) > 1
+                    ), "To predict classifiers use at least l=1 hidden_irreps"
+                    hidden_irreps_out = str(
+                        hidden_irreps[0]
+                    ) #select only scalars for last layer
+                else:
+                    hidden_irreps_out = hidden_irreps
+                
+                irreps_by_layer.append(hidden_irreps_out)
+
+                inter = interaction_cls(
+                    node_attrs_irreps=node_attr_irreps,
+                    node_feats_irreps=hidden_irreps,
+                    edge_attrs_irreps=sh_irreps,
+                    edge_feats_irreps=edge_feats_irreps,
+                    target_irreps=interaction_irreps,
+                    hidden_irreps=hidden_irreps_out,
+                    avg_num_neighbors=avg_num_neighbors,
+                    radial_MLP=radial_MLP,
+                )
+                self.interactions.append(inter)
+                prod = EquivariantProductBasisBlock(
+                    node_feats_irreps=interaction_irreps,
+                    target_irreps=hidden_irreps_out,
+                    correlation=correlation,
+                    num_elements=num_elements,
+                    use_sc=True,
+                )
+                self.products.append(prod)
+      
+            msg = f"irreps by layer: {irreps_by_layer}" 
+            logging.info(msg)
+            self.classifier  = torch.nn.Linear(final_irreps.dim, 1)
+            final_irreps = irreps_by_layer[-1]
+            self.readouts.append(TransformerGraphReadoutBlock(
+                final_irreps, MLP_irreps = MLP_irreps
+            ))  
+
+    def forward(
+        self,
+        data: Dict[str, torch.Tensor],
+        training: bool = False,  # pylint: disable=W0613
+        compute_force: bool = False,
+        compute_virials: bool = False,
+        compute_stress: bool = False,
+        compute_displacement: bool = False,
+        compute_edge_forces: bool = False,  # pylint: disable=W0613
+        compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
+        compute_coupling_class: bool = False,  # pylint: disable=W0613
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        assert compute_force is False
+        assert compute_virials is False
+        assert compute_stress is False
+        assert compute_displacement is False
+        assert compute_coupling_class is False
+
+        # Setup
+        data["node_attrs"].requires_grad_(True)
+        data["positions"].requires_grad_(True)
+        num_graphs = data["ptr"].numel() - 1
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        vectors, lengths = get_edge_vectors_and_lengths(
+            positions=data["positions"],
+            edge_index=data["edge_index"],
+            shifts=data["shifts"],
+        )
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        node_feats_total = []
+        for interaction, product in zip(
+            self.interactions, self.products
+        ):
+            node_feats, sc = interaction(
+                node_attrs=data["node_attrs"],
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff, 
+            )
+            node_feats = product(
+                node_feats=node_feats,
+                sc=sc,
+                node_attrs=data["node_attrs"],
+            )
+            # node_out = readout(node_feats).squeeze(-1)
+            node_feats_total.append(node_feats)
+        
+
+        node_out = node_feats_total[0]
+
+        inter_e = scatter_mean(
+            src= node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+        inter_std = scatter_std(
+            src=node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+        inter_sum = scatter_sum(
+            src=node_out,
+            index=data['batch'].unsqueeze(-1),
+            dim=0,
+            dim_size=num_graphs,
+        )  # [n_graphs,16]
+
+        inter_e = inter_e[:, :, None]
+        inter_std = inter_std[:, :, None]
+        inter_sum = inter_sum[:, :, None]
+        
+        coupling_prob = self.classifier(
+            self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        )
+        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+
+        output = {
+            "coupling_class": coupling_prob,  # [n_nodes, n_classes]
+            "effective_coupling": graph_logits 
+        }
+
+        return output
+
+@compile_mode("script")
 class CouplingPredictor(torch.nn.Module):
 
     def __init__(
