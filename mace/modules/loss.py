@@ -87,6 +87,7 @@ def weighted_mean_absolute_error_energy(
 def weighted_classifier_loss(
     ref: Batch,
     pred: TensorDict,
+    pos_weight: torch.Tensor,
     ddp: Optional[bool] = None,
 ) -> torch.Tensor:
     logging.info(f"classifier in {ref["coupling_class"]}")
@@ -95,6 +96,7 @@ def weighted_classifier_loss(
         pred["coupling_class"],  # probabilities in (0,1)
         ref["coupling_class"],     # 0.0 or 1.0
         reduction="none",
+        pos_weight = torch.tensor(pos_weight)
     )
     weighted = per_graph_loss * ref.weight * ref.energy_weight #Adjust weights to match imbalance in the dataset
     return reduce_loss(weighted, ddp)
@@ -623,17 +625,22 @@ class WeightedEnergyForcesL1L2Loss(torch.nn.Module):
         )
     
 class ClassifierLoss(torch.nn.Module):
-    def __init__(self, energy_weight=1.0) -> None:
+    def __init__(self, pos_weight, energy_weight=1.0) -> None:
         super().__init__()
         self.register_buffer(
             "energy_weight",
             torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
         )
+        self.register_buffer(
+            "pos_weight", 
+            torch.tensor(pos_weight, dtype=torch.get_default_dtype()),
+        )
+
 
     def forward(
         self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
     ) -> torch.Tensor:
-        loss = weighted_classifier_loss(ref, pred, ddp)
+        loss = weighted_classifier_loss(ref, pred, self.pos_weight, ddp)
         return self.energy_weight * loss
 
     def __repr__(self):
@@ -656,3 +663,31 @@ class EffectiveCouplingLoss(torch.nn.Module):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f})"
+    
+class GatedEffectiveCouplingLoss(torch.nn.Module):
+    def __init__(self, energy_weight=1.0, classifier_weight=1.0) -> None:
+        super().__init__()
+        self.register_buffer(
+            "energy_weight",
+            torch.tensor(energy_weight, dtype=torch.get_default_dtype())
+        )
+        self.register_buffer(
+            "classifier_weight",
+            torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
+        )
+    
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        loss_classifier = weighted_classifier_loss(ref, pred, ddp)
+        loss_effective_coupling = weighted_graph_absolute_loss(ref, pred, ddp)
+
+        return (self.energy_weight * loss_effective_coupling
+             + self.classifier_weight + loss_classifier)
+    
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}("
+            f"classifier_weight={self.classifier_weight:.3f}, "
+            f"coupling_weight={self.coupling_weight:.3f})"
+        )

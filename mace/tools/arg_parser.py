@@ -539,6 +539,14 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=DefaultKeys.TOTAL_CHARGE.value,
     )
+
+    parser.add_argument(
+        "--pos_weight",
+        help = "positives weight for classifiers",
+        type = str2bool,
+        default = None
+
+    )
     parser.add_argument(
         "--embedding_specs",
         help=(

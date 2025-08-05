@@ -482,6 +482,16 @@ def run(args) -> None:
         args.compute_stress = False
         args.loss = "effective_coupling_loss"
         args.error_table = "EffectiveCouplingLoss"
+    elif args.model == "GatedCouplingPredictor":
+        atomic_energies = None
+        dipole_only = False
+        args.compute_dipole = False
+        args.compute_energy = False
+        args.compute_forces = False
+        args.compute_virials = False
+        args.compute_stress = False
+        args.loss = ""
+        args.error_table = ""
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
@@ -542,6 +552,15 @@ def run(args) -> None:
 
         train_sets[head_config.head_name] = combine_datasets(train_datasets, head_config.head_name)
 
+        # logging.info(train_sets)
+        labels = torch.tensor([int(d.coupling_class) for d in train_sets[head_config.head_name]], dtype=torch.long)
+
+        n_pos = (labels == 1).sum().item()
+        n_neg = (labels == 0).sum().item()
+        args.pos_weight = float(n_neg) / max(n_pos, 1)
+        logging.info(f"the pos weight is {args.pos_weight}")
+        logging.info(f"▶ coupling_class distribution:  {n_pos} positives, {n_neg} negatives")
+        
         if head_config.valid_file:
             valid_datasets = []
 

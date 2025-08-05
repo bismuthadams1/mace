@@ -162,10 +162,15 @@ class TrainingPlotter:
         )
         labels, quantities = error_type[self.table_type]
 
+        logging.info("error table type")
+        logging.info(self.table_type)
+
         logging.info("quantities:")
         logging.info(quantities)
 
+
         for head in self.heads:
+            logging.info(f"heads in plotter: {head}")
             fig = plt.figure(layout="constrained", figsize=(10, 6))
             fig.suptitle(
                 f"Model loaded from epoch {model_epoch} ({head} head)", fontsize=16
@@ -298,8 +303,6 @@ def plot_epoch_dependence(
 
 
 # INFERENCE=========
-
-
 def plot_inference_from_results(
     axes: np.ndarray,
     train_valid_dict: dict,
@@ -384,7 +387,6 @@ def plot_inference_from_results(
                     color=fixed_color_train_valid,
                     label=name,  
                 )
-
             
             elif key == "coupling_class" and "coupling_class" in result:
                 scatter = ax.hist(

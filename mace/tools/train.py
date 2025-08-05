@@ -583,7 +583,8 @@ def evaluate(
             compute_stress=output_args["stress"],
         )
         avg_loss, aux = metrics(batch, output)
-
+    logging.info("model output in metrics")
+    logging.info(output)
     avg_loss, aux = metrics.compute()
     aux["time"] = time.time() - start_time
     metrics.reset()
@@ -668,6 +669,14 @@ class MACELoss(Metric):
 
             self.correct_preds += (preds == labels).sum()
             self.total_preds += torch.tensor(labels.numel(), device=preds.device) #number of elements in labels tensor
+            if self.total_preds % 5 == 0:
+                logging.info('dumping logits...')
+                pos_logits = logits[labels==1].detach().cpu().numpy()
+                logging.info('pos samples')
+                logging.info(pos_logits)
+                neg_logits = logits[labels==0].detach().cpu().numpy()
+                logging.info('neg samples')
+                logging.info(neg_logits)
 
         # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
         if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
@@ -732,6 +741,7 @@ class MACELoss(Metric):
             aux["accuracy"] = (
                 self.correct_preds.float() / self.total_preds
             )
+            
         if self.E_graph_computed > 0:
             delta_graph_es =  self.convert(self.delta_graph_es)
             aux["mae_graph_wide_coupling"] = compute_mae(delta_graph_es)

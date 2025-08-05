@@ -630,7 +630,8 @@ def get_loss_fn(
 
     elif args.loss == "classifier_loss":
         loss_fn = modules.ClassifierLoss(
-            energy_weight=args.energy_weight, #change if needed
+            energy_weight=args.energy_weight, #change if needed,
+            pos_weight = args.pos_weight
         )
 
     elif args.loss == "effective_coupling_loss":

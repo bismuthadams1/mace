@@ -47,8 +47,10 @@ class AtomicData(torch_geometric.data.Data):
     virials_weight: torch.Tensor
     dipole_weight: torch.Tensor
     charges_weight: torch.Tensor
+    classifier_weight: torch.Tensor
     coupling_class: torch.Tensor
     effective_coupling: torch.Tensor
+    pos_weight: torch.Tensor
 
     def __init__(
         self,
@@ -66,6 +68,7 @@ class AtomicData(torch_geometric.data.Data):
         virials_weight: Optional[torch.Tensor],  # [,]
         dipole_weight: Optional[torch.Tensor],  # [,]
         charges_weight: Optional[torch.Tensor],  # [,]
+        classifier_weight: Optional[torch.Tensor], # [,]
         forces: Optional[torch.Tensor],  # [n_nodes, 3]
         energy: Optional[torch.Tensor],  # [, ]
         stress: Optional[torch.Tensor],  # [1,3,3]
@@ -76,7 +79,7 @@ class AtomicData(torch_geometric.data.Data):
         total_charge: Optional[torch.Tensor] = None,  # [,]
         total_spin: Optional[torch.Tensor] = None,  # [,]
         coupling_class: Optional[torch.Tensor] = None,  # [,]
-        effective_coupling: Optional[torch.Tensor] = None,
+        effective_coupling: Optional[torch.Tensor] = None, # [,]
     ):
         # Check shapes
         num_nodes = node_attrs.shape[0]
@@ -94,6 +97,7 @@ class AtomicData(torch_geometric.data.Data):
         assert virials_weight is None or len(virials_weight.shape) == 0
         assert dipole_weight is None or dipole_weight.shape == (1, 3), dipole_weight
         assert charges_weight is None or len(charges_weight.shape) == 0
+        assert classifier_weight is None or len(classifier_weight.shape) == 0
         assert cell is None or cell.shape == (3, 3)
         assert forces is None or forces.shape == (num_nodes, 3)
         assert energy is None or len(energy.shape) == 0
@@ -123,6 +127,7 @@ class AtomicData(torch_geometric.data.Data):
             "virials_weight": virials_weight,
             "dipole_weight": dipole_weight,
             "charges_weight": charges_weight,
+            "classifier_weight": classifier_weight,
             "forces": forces,
             "energy": energy,
             "stress": stress,
@@ -234,6 +239,14 @@ class AtomicData(torch_geometric.data.Data):
             else torch.tensor(1.0, dtype=torch.get_default_dtype())
         )
 
+        classifier_weight = (
+            torch.tensor(
+                config.property_weights.get("coupling_class", dtype = torch.get_default_dtype())
+            )
+            if config.property_weights.get("coupling_class") is not None
+            else torch.tensor(1.0, dtype=torch.get_default_dtype())
+        )
+
         forces = (
             torch.tensor(
                 config.properties.get("forces"), dtype=torch.get_default_dtype()
@@ -330,6 +343,7 @@ class AtomicData(torch_geometric.data.Data):
             virials_weight=virials_weight,
             dipole_weight=dipole_weight,
             charges_weight=charges_weight,
+            classifier_weight=classifier_weight,
             forces=forces,
             energy=energy,
             stress=stress,
