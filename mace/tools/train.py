@@ -428,8 +428,13 @@ def take_step(
             if p.grad is not None:
                 gnorm = p.grad.norm().item()
                 total_norm += gnorm**2
-                if "readouts.0" in name:
+                if "readouts" in name:
                     logging.info(f"    grad ‖{name}‖ = {gnorm:.6f}")
+                if "products" in name:
+                    logging.info(f" product grad  ‖{name}‖ = {gnorm:.6f}")
+                if "interactions" in name:
+                    logging.info(f" interactions grad  ‖{name}‖ = {gnorm:.6f}")
+
         total_norm = total_norm**0.5
         logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
         #-------------------

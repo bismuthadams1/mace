@@ -1142,7 +1142,7 @@ class CouplingClassifier(torch.nn.Module):
                 "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
             )
             assert atomic_energies is None
-
+            
             # Embedding
             node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) 
             node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
@@ -1243,17 +1243,23 @@ class CouplingClassifier(torch.nn.Module):
                 #     self.readouts.append(TransformerGraphReadoutBlock(
                 #         final_irreps, MLP_irreps = MLP_irreps
                 #     )) 
-            msg = f"irreps by layer: {irreps_by_layer}" 
-            logging.info(msg)
-            final_irreps = irreps_by_layer[-1]
-            logging.info('final irreps:')
-            logging.info(final_irreps)
+            # final_irreps = irreps_by_layer[-1]
+            node_readout = LinearReadoutBlock(
+                irreps_in =  irreps_by_layer[-1],
+                irrep_out =  o3.Irreps("16x0e"), #this may need to len(heads) SCALAR READOUT with EVEN PARITY
+            )
+
+            self.readouts.append(node_readout)
+
+            # final_irreps = self.readouts[0].irreps_out.num_irreps
+            final_irreps = o3.Irreps("16x0e")
+
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps = MLP_irreps
             ))  
             #---Simpler test model
             # self.readouts.append(torch.nn.Linear(3,1))
-            # self.readouts.append(torch.nn.Linear(16,1))
+            # self.readouts.append(torch.nn.Linear(final_irreps.dim,1))
 
     def forward(
         self,
@@ -1294,6 +1300,7 @@ class CouplingClassifier(torch.nn.Module):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
 
+        # Interactions
         node_feats_total = []
         counter = 0
         for interaction, product in zip(
@@ -1313,34 +1320,37 @@ class CouplingClassifier(torch.nn.Module):
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
+            node_feats_total.append(node_feats)
             logging.info(f'node attribute change for layer {counter}')
             logging.info(node_feats)
-            # node_out = readout(node_feats).squeeze(-1)
-            node_feats_total.append(node_feats)
-        
 
-        node_out = node_feats_total[-1]
+        node_out = self.readouts[0](node_feats_total[-1]).squeeze(-1)
+            # node_feats_total.append(node_feats)
+        logging.info('node outs:')
+        logging.info(node_out.flatten())
+        # node_out = node_feats_total[-1]
 
         inter_e = scatter_mean(
             src= node_out,
-            index=data['batch'].unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_std = scatter_std(
             src=node_out,
-            index=data['batch'].unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_sum = scatter_sum(
             src=node_out,
-            index=data['batch'].unsqueeze(-1),
+            index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
 
         inter_e = inter_e[:, :, None]
+        logging.info(f"shape of inter_e {inter_e.shape}")
         inter_std = inter_std[:, :, None]
         inter_sum = inter_sum[:, :, None]
         #-----modification to simplify loss func
@@ -1351,26 +1361,31 @@ class CouplingClassifier(torch.nn.Module):
         # graph_logits = self.readouts[1](mid_dim).squeeze(-1) #[n_gs, 1] -> [n_gs]
         #-----modification to simplify loss func
 
-        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+        graph_logits = self.readouts[-1].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+
+        #-----simple model test
+        # input = torch.cat([inter_e, inter_std, inter_sum], dim=2)
+        # graph_logits = self.readouts[-1](input)
+        #----------------------
 
         # in your model forward (or right after you compute node_out and graph_logits):
         # node_feats = node_out.flatten().tolist()                 # [batch_size * F]
-        node_feats = torch.cat([inter_e, inter_std, inter_sum], dim=2).flatten().tolist()
-        probs     = torch.sigmoid(graph_logits).tolist()         # [batch_size]
-        true_probs = data['coupling_class']
+        # # node_feats = torch.cat([inter_e, inter_std, inter_sum], dim=2).flatten().tolist()
+        # probs     = torch.sigmoid(graph_logits).tolist()         # [batch_size]
+        # true_probs = data['coupling_class']
 
         #----- DEBUG CSV OUT----
         # pair up each graph’s embedding with its probability
-        rows = []
-        F = node_out.shape[1]                                     # number of features per graph  
-        for i in range(len(probs)):
-            start, end = i*F, (i+1)*F
-            rows.append(node_feats[start:end] + [probs[i]] + [true_probs[i]])
+        # rows = []
+        # F = node_out.shape[1]                                     # number of features per graph  
+        # for i in range(len(probs)):
+        #     start, end = i*F, (i+1)*F
+        #     rows.append(node_feats[start:end] + [probs[i]] + [true_probs[i]])
 
-        # append to a CSV once per forward:
-        with open("final_nodes_out.csv", "a", newline="") as fp:
-            writer = csv.writer(fp)
-            writer.writerows(rows)
+        # # append to a CSV once per forward:
+        # with open("final_nodes_out.csv", "a", newline="") as fp:
+        #     writer = csv.writer(fp)
+        #     writer.writerows(rows)
         #----------------------
 
         output = {

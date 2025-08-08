@@ -1372,13 +1372,12 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         self.pool_norm = torch.nn.LayerNorm(3)
 
         input_dim = irreps_out.dim # input dimension for the MLP
-        # logging.info('input_dim:', input_dim)
-        # num_irreps = irreps_out.num_irreps
-        # logging.info('num_irreps:', num_irreps)
+        logging.info(f"input dim {input_dim}")
+
         self.mapper = torch.nn.Sequential(
             torch.nn.Linear(3,1),
             torch.nn.GELU(),
-            torch.nn.Dropout(0.1),
+            torch.nn.Dropout(0.01),
         ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
 
         mid_dim = MLP_irreps.num_irreps
@@ -1389,14 +1388,13 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(input_dim, mid_dim),
             torch.nn.GELU(),
-            torch.nn.Dropout(0.1),
+            torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
         )
 
     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
         inter_e, inter_std, inter_sum  = x
 
-        # momentums = self.mapper(self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2))) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
         momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [n_graphs, 16], the cat makes [n_graphs, 16] from input 
 
         momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
