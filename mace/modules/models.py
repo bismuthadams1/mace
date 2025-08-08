@@ -1205,15 +1205,15 @@ class CouplingClassifier(torch.nn.Module):
             logging.info(f"number of interactions: {num_interactions}")
 
             for i in range(num_interactions - 1):
-                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
-                    assert (
-                        len(hidden_irreps) > 1
-                    ), "To predict classifiers use at least l=1 hidden_irreps"
-                    hidden_irreps_out = str(
-                        hidden_irreps[:2]
-                    ) #select only scalars for last layer
-                else:
-                    hidden_irreps_out = hidden_irreps
+                # if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
+                #     assert (
+                #         len(hidden_irreps) > 1
+                #     ), "To predict classifiers use at least l=1 hidden_irreps"
+                #     hidden_irreps_out = str(
+                #         hidden_irreps[:2]
+                #     ) #select only scalars for last layer
+                # else:
+                hidden_irreps_out = hidden_irreps
                 
                 irreps_by_layer.append(hidden_irreps_out)
 
