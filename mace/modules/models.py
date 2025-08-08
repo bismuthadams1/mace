@@ -1142,7 +1142,7 @@ class CouplingClassifier(torch.nn.Module):
                 "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
             )
             assert atomic_energies is None
-            
+
             # Embedding
             node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) 
             node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
@@ -1157,7 +1157,6 @@ class CouplingClassifier(torch.nn.Module):
             )
 
             edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e") #number of edge feature channels
-
             sh_irreps = o3.Irreps.spherical_harmonics(max_ell)
             num_features = hidden_irreps.count(o3.Irrep(0, 1))
             interaction_irreps = (sh_irreps * num_features).sort()[0].simplify()
@@ -1196,7 +1195,9 @@ class CouplingClassifier(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
-            self.pool_norm = torch.nn.LayerNorm(3)
+            self.readouts.append(
+                LinearReadoutBlock(hidden_irreps)
+            )
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1205,13 +1206,13 @@ class CouplingClassifier(torch.nn.Module):
 
             for i in range(num_interactions - 1):
                 if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
-                    # assert (
-                    #     len(hidden_irreps) > 1
-                    # ), "To predict classifiers use at least l=1 hidden_irreps"
-                    # hidden_irreps_out = str(
-                    #     hidden_irreps[:2]
-                    # ) #select only scalars for last layer
-                # else:
+                    assert (
+                        len(hidden_irreps) > 1
+                    ), "To predict classifiers use at least l=1 hidden_irreps"
+                    hidden_irreps_out = str(
+                        hidden_irreps[:2]
+                    ) #select only scalars for last layer
+                else:
                     hidden_irreps_out = hidden_irreps
                 
                 irreps_by_layer.append(hidden_irreps_out)
@@ -1235,31 +1236,32 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
-                # if i == num_interactions - 2:
-                #     final_irreps = hidden_irreps_out
-                #     # self.readouts.append(
-                #     #     LinearCouplingReadoutBlock(hidden_irreps, dipole_only=False)
-                #     # )
-                #     self.readouts.append(TransformerGraphReadoutBlock(
-                #         final_irreps, MLP_irreps = MLP_irreps
-                #     )) 
-            # final_irreps = irreps_by_layer[-1]
-            node_readout = LinearReadoutBlock(
-                irreps_in =  irreps_by_layer[-1],
-                irrep_out =  o3.Irreps("16x0e"), #this may need to len(heads) SCALAR READOUT with EVEN PARITY
+                if i == num_interactions - 2:
+                    self.readouts.append(
+                        LinearReadoutBlock(hidden_irreps)
+                    )
+            
+            self.transformer_readout = TransformerGraphReadoutBlock(
+                irreps_by_layer[-1], MLP_irreps=MLP_irreps
             )
+            # # final_irreps = irreps_by_layer[-1]
+            # node_readout = LinearReadoutBlock(
+            #     irreps_in =  irreps_by_layer[-1],
+            #     irrep_out =  o3.Irreps("16x0e"), #this may need to len(heads) SCALAR READOUT with EVEN PARITY
+            # )
 
-            self.readouts.append(node_readout)
+            # self.readouts.append(node_readout)
 
-            # final_irreps = self.readouts[0].irreps_out.num_irreps
-            final_irreps = o3.Irreps("16x0e")
+            # # final_irreps = self.readouts[0].irreps_out.num_irreps
+            # # final_irreps = o3.Irreps("16x0e")
 
-            self.readouts.append(TransformerGraphReadoutBlock(
-                final_irreps, MLP_irreps = MLP_irreps
-            ))  
-            #---Simpler test model
+            # # self.readouts.append(TransformerGraphReadoutBlock(
+            # #     final_irreps, MLP_irreps = MLP_irreps
+            # # ))  
+            # #---Simpler test model
             # self.readouts.append(torch.nn.Linear(3,1))
             # self.readouts.append(torch.nn.Linear(final_irreps.dim,1))
+
 
     def forward(
         self,
@@ -1270,7 +1272,7 @@ class CouplingClassifier(torch.nn.Module):
         compute_stress: bool = False,
         compute_displacement: bool = False,
         compute_edge_forces: bool = False,  # pylint: disable=W0613
-        compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
+        compute_atomic_stresses: bool = False,  # pylint: disable=W0613
         compute_coupling_class: bool = True,  # pylint: disable=W0613
     ) -> Dict[str, Optional[torch.Tensor]]:
         assert compute_force is False
@@ -1284,6 +1286,7 @@ class CouplingClassifier(torch.nn.Module):
         data["positions"].requires_grad_(True)
         num_graphs = data["ptr"].numel() - 1
 
+        logging.info('node_attrs prior to run', data["node_attrs"].detach().cpu().numpy().tolist())
         # Embeddings
         node_feats = self.node_embedding(data["node_attrs"])
 
@@ -1300,99 +1303,202 @@ class CouplingClassifier(torch.nn.Module):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
 
-        # Interactions
-        node_feats_total = []
-        counter = 0
-        for interaction, product in zip(
-            self.interactions, self.products
+        node_outs_total = []
+        for interaction, product, readout in zip(
+            self.interactions, self.products, self.readouts
         ):
-            counter += 1
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
                 node_feats=node_feats,
                 edge_attrs=edge_attrs,
                 edge_feats=edge_feats,
                 edge_index=data["edge_index"],
-                cutoff=cutoff, 
+                cutoff=cutoff,
             )
             node_feats = product(
                 node_feats=node_feats,
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
-            node_feats_total.append(node_feats)
-            logging.info(f'node attribute change for layer {counter}')
+            node_out = readout(node_feats)
+            node_outs_total.append(node_feats)
+            logging.info(f'node attribute change for layer {len(node_outs_total)}')
             logging.info(node_feats)
 
-        node_out = self.readouts[0](node_feats_total[-1]).squeeze(-1)
-            # node_feats_total.append(node_feats)
+        # Readout
+        last_node_out = node_outs_total[-1]
         logging.info('node outs:')
         logging.info(node_out.flatten())
-        # node_out = node_feats_total[-1]
-
         inter_e = scatter_mean(
-            src= node_out,
+            src= last_node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_std = scatter_std(
-            src=node_out,
+            src=last_node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_sum = scatter_sum(
-            src=node_out,
+            src=last_node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
 
         inter_e = inter_e[:, :, None]
-        logging.info(f"shape of inter_e {inter_e.shape}")
         inter_std = inter_std[:, :, None]
-        inter_sum = inter_sum[:, :, None]
-        #-----modification to simplify loss func
-        # input = self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2)).mean(dim=2)  #[n_graphs,16,3]
-        # input = torch.cat([inter_e, inter_std, inter_sum], dim=2).mean(dim=2)
-        # mid_dim = self.readouts[0](input).squeeze(-1) #[n_gs, 16, 1] -> [n_gs,16]
-        # graph_logits = mid_dim
-        # graph_logits = self.readouts[1](mid_dim).squeeze(-1) #[n_gs, 1] -> [n_gs]
-        #-----modification to simplify loss func
+        inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
 
-        graph_logits = self.readouts[-1].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
-
-        #-----simple model test
-        # input = torch.cat([inter_e, inter_std, inter_sum], dim=2)
-        # graph_logits = self.readouts[-1](input)
-        #----------------------
-
-        # in your model forward (or right after you compute node_out and graph_logits):
-        # node_feats = node_out.flatten().tolist()                 # [batch_size * F]
-        # # node_feats = torch.cat([inter_e, inter_std, inter_sum], dim=2).flatten().tolist()
-        # probs     = torch.sigmoid(graph_logits).tolist()         # [batch_size]
-        # true_probs = data['coupling_class']
-
-        #----- DEBUG CSV OUT----
-        # pair up each graph’s embedding with its probability
-        # rows = []
-        # F = node_out.shape[1]                                     # number of features per graph  
-        # for i in range(len(probs)):
-        #     start, end = i*F, (i+1)*F
-        #     rows.append(node_feats[start:end] + [probs[i]] + [true_probs[i]])
-
-        # # append to a CSV once per forward:
-        # with open("final_nodes_out.csv", "a", newline="") as fp:
-        #     writer = csv.writer(fp)
-        #     writer.writerows(rows)
-        #----------------------
+        graph_logits = self.transformer_readout((inter_e, inter_std, inter_sum))
 
         output = {
-            "coupling_class": graph_logits  # [n_nodes, n_classes]
-        }
+        "coupling_class": graph_logits  # [n_nodes, n_classes]
+        }   
 
         return output
+        # Interactions
+
+
+    # def forward(
+    #     self,
+    #     data: Dict[str, torch.Tensor],
+    #     training: bool = False,  # pylint: disable=W0613
+    #     compute_force: bool = False,
+    #     compute_virials: bool = False,
+    #     compute_stress: bool = False,
+    #     compute_displacement: bool = False,
+    #     compute_edge_forces: bool = False,  # pylint: disable=W0613
+    #     compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
+    #     compute_coupling_class: bool = True,  # pylint: disable=W0613
+    # ) -> Dict[str, Optional[torch.Tensor]]:
+    #     assert compute_force is False
+    #     assert compute_virials is False
+    #     assert compute_stress is False
+    #     assert compute_displacement is False
+    #     assert compute_coupling_class is True
+
+    #     # Setup
+    #     data["node_attrs"].requires_grad_(True)
+    #     data["positions"].requires_grad_(True)
+    #     num_graphs = data["ptr"].numel() - 1
+
+    #     logging.info('node_attrs prior to run', data["node_attrs"].detach().cpu().numpy().tolist())
+    #     # Embeddings
+    #     node_feats = self.node_embedding(data["node_attrs"])
+
+    #     logging.info('node feats prior to run')
+    #     logging.info(node_feats)
+
+    #     vectors, lengths = get_edge_vectors_and_lengths(
+    #         positions=data["positions"],
+    #         edge_index=data["edge_index"],
+    #         shifts=data["shifts"],
+    #     )
+    #     edge_attrs = self.spherical_harmonics(vectors)
+    #     edge_feats, cutoff = self.radial_embedding(
+    #         lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+    #     )
+
+    #     # Interactions
+    #     node_feats_total = []
+    #     counter = 0
+    #     for interaction, product in zip(
+    #         self.interactions, self.products
+    #     ):
+    #         counter += 1
+    #         node_feats, sc = interaction(
+    #             node_attrs=data["node_attrs"],
+    #             node_feats=node_feats,
+    #             edge_attrs=edge_attrs,
+    #             edge_feats=edge_feats,
+    #             edge_index=data["edge_index"],
+    #             cutoff=cutoff, 
+    #         )
+    #         node_feats = product(
+    #             node_feats=node_feats,
+    #             sc=sc,
+    #             node_attrs=data["node_attrs"],
+    #         )
+    #         node_feats_total.append(node_feats)
+    #         logging.info(f'node attribute change for layer {counter}')
+    #         logging.info(node_feats)
+
+    #     node_out = self.readouts[0](node_feats_total[-1]).squeeze(-1)
+
+    #     self.node_feats_total = node_feats_total[-1]
+    #     # node_feats_total.append(node_feats)
+    #     logging.info('node outs:')
+    #     logging.info(node_out.flatten())
+    #     # node_out = node_feats_total[-1]
+
+    #     inter_e = scatter_mean(
+    #         src= node_out,
+    #         index=data['batch'].unsqueeze(-1), 
+    #         dim=0,
+    #         dim_size=num_graphs,
+    #     )  # [n_graphs,16]
+    #     inter_std = scatter_std(
+    #         src=node_out,
+    #         index=data['batch'].unsqueeze(-1), 
+    #         dim=0,
+    #         dim_size=num_graphs,
+    #     )  # [n_graphs,16]
+    #     inter_sum = scatter_sum(
+    #         src=node_out,
+    #         index=data['batch'].unsqueeze(-1), 
+    #         dim=0,
+    #         dim_size=num_graphs,
+    #     )  # [n_graphs,16]
+
+    #     # inter_e = inter_e[:, :, None]
+    #     # logging.info(f"shape of inter_e {inter_e.shape}")
+    #     # inter_std = inter_std[:, :, None]
+    #     # inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
+
+    #     #-----modification to simplify loss func
+    #     input = self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2)).mean(dim=2)  #[n_graphs,16,3]
+    #     input = torch.cat([inter_e, inter_std, inter_sum], dim=2).mean(dim=2)
+    #     mid_dim = self.readouts[0](input).squeeze(-1) #[n_gs, 16, 1] -> [n_gs,16]
+    #     graph_logits = mid_dim
+    #     graph_logits = self.readouts[1](mid_dim).squeeze(-1) #[n_gs, 1] -> [n_gs]
+    #     #-----modification to simplify loss func
+
+    #     # graph_logits = self.readouts[-1].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+    #     # graph_logits = self.readouts[-1].forward(inter_sum)  #  [n_graphs,16]
+
+    #     #-----simple model test
+    #     # input = torch.cat([inter_e, inter_std, inter_sum], dim=2)
+    #     # graph_logits = self.readouts[-1](input)
+    #     #----------------------
+
+    #     # in your model forward (or right after you compute node_out and graph_logits):
+    #     # node_feats = node_out.flatten().tolist()                 # [batch_size * F]
+    #     # # node_feats = torch.cat([inter_e, inter_std, inter_sum], dim=2).flatten().tolist()
+    #     # probs     = torch.sigmoid(graph_logits).tolist()         # [batch_size]
+    #     # true_probs = data['coupling_class']
+
+    #     #----- DEBUG CSV OUT----
+    #     # pair up each graph’s embedding with its probability
+    #     # rows = []
+    #     # F = node_out.shape[1]                                     # number of features per graph  
+    #     # for i in range(len(probs)):
+    #     #     start, end = i*F, (i+1)*F
+    #     #     rows.append(node_feats[start:end] + [probs[i]] + [true_probs[i]])
+
+    #     # # append to a CSV once per forward:
+    #     # with open("final_nodes_out.csv", "a", newline="") as fp:
+    #     #     writer = csv.writer(fp)
+    #     #     writer.writerows(rows)
+    #     #----------------------
+
+    #     output = {
+    #         "coupling_class": graph_logits  # [n_nodes, n_classes]
+    #     }
+
+    #     return output
         
 @compile_mode("script")
 class GatedCouplingPredictor(torch.nn.Module):

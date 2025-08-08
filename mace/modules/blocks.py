@@ -1408,4 +1408,54 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
 
         return graph_logits
+    
+    # def __init__(
+    #     self,
+    #     irreps_out: o3.Irreps,
+    #     MLP_irreps: o3.Irreps,
+    #     cueq_config: Optional[CuEquivarianceConfig] = None,
+    # ):
+    #     super().__init__()
+        
+    #     # self.pool_norm = torch.nn.LayerNorm(3)
 
+    #     input_dim = irreps_out.dim # input dimension for the MLP
+    #     logging.info(f"input dim {input_dim}")
+
+    #     self.mapper = torch.nn.Sequential(
+    #         torch.nn.Linear(16,16),
+    #         torch.nn.GELU(),
+    #         torch.nn.Dropout(0.01),
+    #     ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
+
+    #     mid_dim = MLP_irreps.num_irreps
+    #     self.attn = torch.nn.MultiheadAttention(
+    #         input_dim, 8, 0.05, batch_first=True
+    #     )
+
+    #     self.fc = torch.nn.Sequential(
+    #         torch.nn.Linear(input_dim, mid_dim),
+    #         torch.nn.GELU(),
+    #         torch.nn.Dropout(0.01),
+    #         torch.nn.Linear(mid_dim, 1),
+    #     )
+
+    # def forward(self, x: torch.Tensor) -> torch.Tensor: #[n_graphs,16]
+    #     momentums = self.mapper(x)  # [n_graphs, 16, 1], the cat makes [n_graphs, 16] from input
+    #     # momentums = momentums.squeeze_(-1)  # [n_graphs, 16]
+    #     momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [n_graphs,1,16]
+    #     att_momentums, _ = self.attn(
+    #         momentums, momentums, momentums
+    #     )  # [n_graphs,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+    #     momentums = momentums + att_momentums  # [n_graphs,1,16] add the attention output to the momentums
+    #     momentums = momentums[:, 0, :]  # [n_graphs,16] remove the second dimension
+    #     graph_logits = self.fc(momentums).squeeze(-1)  # [n_graphs,16] apply the fully connected layer
+
+    #     return graph_logits
+    # def forward(self, graph_repr):
+    #     # graph_repr: [B, D] after scatter_sum
+    #     h = self.mapper(graph_repr)               # [B, D]
+    #     h = h.unsqueeze(1)                        # [B, 1, D]
+    #     attn_out, _ = self.attn(h, h, h)          # [B, 1, D]
+    #     h = (h + attn_out).squeeze(1)             # [B, D]
+    #     return self.fc(h).squeeze(-1)             # [B]

@@ -70,4 +70,5 @@ __all__ = [
     "load_foundations",
     "load_foundations_elements",
     "build_preprocess_arg_parser",
+    "signal_monitor",
 ]

@@ -21,12 +21,17 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch_ema import ExponentialMovingAverage
 from torchmetrics import Metric
+from mace.tools.scatter import scatter_sum, scatter_mean, scatter_std
+
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter(log_dir="runs/coupling_cls")
 
 from mace.cli.visualise_train import TrainingPlotter
 
 from . import torch_geometric
 from .checkpoint import CheckpointHandler, CheckpointState
 from .torch_tools import to_numpy
+from .signal_monitor import SignalTap
 from .utils import (
     MetricsLogger,
     compute_mae,
@@ -35,7 +40,6 @@ from .utils import (
     compute_rel_rmse,
     compute_rmse,
 )
-
 
 @dataclasses.dataclass
 class SWAContainer:
@@ -411,6 +415,18 @@ def take_step(
     batch = batch.to(device)
     batch_dict = batch.to_dict()
 
+    #------ SignalTap for monitoring activations and gradients during training ------
+    tapped = SignalTap(
+        modules = [
+            model.node_embedding,
+            *model.interactions,
+            *model.products,
+            *model.readouts
+        ],
+        every = 10          # print every 10 optimisation steps
+    )
+    #-------------------------------------------------------------------------------
+
     def closure():
         optimizer.zero_grad(set_to_none=True)
         output = model(
@@ -422,7 +438,7 @@ def take_step(
         )
         loss = loss_fn(pred=output, ref=batch)
         loss.backward()
-        #monitor the gradient
+        #-------------------monitor the gradient
         total_norm = 0.0
         for name, p in model.named_parameters():
             if p.grad is not None:
@@ -437,7 +453,26 @@ def take_step(
 
         total_norm = total_norm**0.5
         logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
-        #-------------------
+        #-----------------------------------------
+        step = 0
+        #-------------------monitor the activation
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
+            writer.add_scalar("loss/train", loss, step)
+            step += 1
+        tapped.step()  # Call the step method to print the stats
+        # batch_signal = batch.to_dict()
+        # num_graphs = batch["ptr"].numel() - 1
+        # with torch.no_grad():
+        #     node_out = model.readouts[0](model.node_feats_total[-1])   # [n_nodes, 16]
+        #     logging.info("node_out abs-mean :",  node_out.abs().mean())
+        #     logging.info("mean/std/sum abs-means:",
+        #         scatter_mean(node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean(),
+        #         scatter_std (node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean(),
+        #         scatter_sum (node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean())
+
+
         if max_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
 
