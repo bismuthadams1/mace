@@ -456,6 +456,12 @@ def take_step(
         #-----------------------------------------
         step = 0
         #-------------------monitor the activation
+        logging.info("LinearReadoutBlock grad norm:", model.readouts[0].linear.weight.grad.norm())
+
+        logging.info("inter_e grad:", model._debug_inter_e.grad if hasattr(model, "_debug_inter_e") else "not retained")
+        logging.info("inter_std grad:", model._debug_inter_std.grad if hasattr(model, "_debug_inter_std") else "not retained")
+        logging.info("inter_sum grad:", model._debug_inter_sum.grad if hasattr(model, "_debug_inter_sum") else "not retained")
+
         for name, param in model.named_parameters():
             if param.grad is not None:
                 writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
@@ -561,6 +567,10 @@ def take_step_lbfgs(
             total_norm = total_norm**0.5
             logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
             #----------------------------------------
+            # Where do does the gradient vanish?
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    logging.info(f"{name} grad norm: {param.grad.norm():.6f}")
 
         if max_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
@@ -717,6 +727,7 @@ class MACELoss(Metric):
                 neg_logits = logits[labels==0].detach().cpu().numpy()
                 logging.info('neg samples')
                 logging.info(neg_logits)
+            
 
         # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
         if output.get("effective_coupling") is not None and batch.effective_coupling is not None:

@@ -92,6 +92,9 @@ def weighted_classifier_loss(
 ) -> torch.Tensor:
     logging.info(f"classifier in {ref["coupling_class"]}")
     logging.info(f"classifier out { pred["coupling_class"]}")
+    logging.info(f"classifier out (logits) {torch.sigmoid(pred["coupling_class"])}")
+    logging.info(f"classifier in {ref['coupling_class'].shape} shape")
+    logging.info(f"classifier out {pred['coupling_class'].shape} shape")
     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         pred["coupling_class"],  # probabilities in logits
         ref["coupling_class"],     # 0.0 or 1.0

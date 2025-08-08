@@ -329,7 +329,7 @@ class LinearGraphLevelCoupling(torch.nn.Module):
         oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
         ):
         super().__init__()
-        self.irreps_out = o3.Irreps("1x0e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
+        self.irreps_out = o3.Irreps("1x0e") #1x0e when you need an even (e) invariant scalar output not o which is a scaler than gets a -1 under conversion
         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
 
     

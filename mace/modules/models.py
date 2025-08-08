@@ -1158,6 +1158,7 @@ class CouplingClassifier(torch.nn.Module):
 
             edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e") #number of edge feature channels
             sh_irreps = o3.Irreps.spherical_harmonics(max_ell)
+            logging.info(f"sh_irreps: {sh_irreps}")
             num_features = hidden_irreps.count(o3.Irrep(0, 1))
             interaction_irreps = (sh_irreps * num_features).sort()[0].simplify()
             self.spherical_harmonics = o3.SphericalHarmonics(
@@ -1195,9 +1196,9 @@ class CouplingClassifier(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
-            self.readouts.append(
-                LinearReadoutBlock(hidden_irreps)
-            )
+            # self.readouts.append(
+            #     LinearReadoutBlock(hidden_irreps)
+            # )
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1236,32 +1237,21 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
-                if i == num_interactions - 2:
-                    self.readouts.append(
-                        LinearReadoutBlock(hidden_irreps)
-                    )
+                # if i == num_interactions - 2:
+                #     self.readouts.append(
+                #         LinearReadoutBlock(hidden_irreps)
+                #     )
             
-            self.transformer_readout = TransformerGraphReadoutBlock(
-                irreps_by_layer[-1], MLP_irreps=MLP_irreps
-            )
-            # # final_irreps = irreps_by_layer[-1]
-            # node_readout = LinearReadoutBlock(
-            #     irreps_in =  irreps_by_layer[-1],
-            #     irrep_out =  o3.Irreps("16x0e"), #this may need to len(heads) SCALAR READOUT with EVEN PARITY
-            # )
+            self.readouts.append(
+                LinearReadoutBlock(hidden_irreps, irrep_out=o3.Irreps("16x0e"))
+            ) # This will pool the final node features to a single vector for the transformer readout
+            
+            final_irreps = o3.Irreps("16x0e") # This is the final irreps for the transformer readout
 
-            # self.readouts.append(node_readout)
-
-            # # final_irreps = self.readouts[0].irreps_out.num_irreps
-            # # final_irreps = o3.Irreps("16x0e")
-
-            # # self.readouts.append(TransformerGraphReadoutBlock(
-            # #     final_irreps, MLP_irreps = MLP_irreps
-            # # ))  
-            # #---Simpler test model
-            # self.readouts.append(torch.nn.Linear(3,1))
-            # self.readouts.append(torch.nn.Linear(final_irreps.dim,1))
-
+            self.readouts.append(TransformerGraphReadoutBlock(
+                final_irreps, MLP_irreps=MLP_irreps
+            ))
+ 
 
     def forward(
         self,
@@ -1286,7 +1276,7 @@ class CouplingClassifier(torch.nn.Module):
         data["positions"].requires_grad_(True)
         num_graphs = data["ptr"].numel() - 1
 
-        logging.info('node_attrs prior to run', data["node_attrs"].detach().cpu().numpy().tolist())
+        # logging.info('node_attrs prior to run', data["node_attrs"].detach().cpu().numpy().tolist())
         # Embeddings
         node_feats = self.node_embedding(data["node_attrs"])
 
@@ -1304,8 +1294,8 @@ class CouplingClassifier(torch.nn.Module):
         )
 
         node_outs_total = []
-        for interaction, product, readout in zip(
-            self.interactions, self.products, self.readouts
+        for interaction, product in zip(
+            self.interactions, self.products
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1320,39 +1310,48 @@ class CouplingClassifier(torch.nn.Module):
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
-            node_out = readout(node_feats)
             node_outs_total.append(node_feats)
-            logging.info(f'node attribute change for layer {len(node_outs_total)}')
-            logging.info(node_feats)
 
-        # Readout
-        last_node_out = node_outs_total[-1]
+        node_out = self.readouts[0](node_outs_total[-1])
+        logging.info('node outs shape:')
+        logging.info(node_out.shape)
+        # Transform read
+        # last_node_out = node_outs_total[-1]
         logging.info('node outs:')
         logging.info(node_out.flatten())
         inter_e = scatter_mean(
-            src= last_node_out,
+            src= node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_std = scatter_std(
-            src=last_node_out,
+            src=node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_sum = scatter_sum(
-            src=last_node_out,
+            src=node_out,
             index=data['batch'].unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
 
+        inter_e.retain_grad()
+        inter_std.retain_grad()
+        inter_sum.retain_grad()
+
+        # Store for later inspection after backward
+        self._debug_inter_e = inter_e.detach().cpu()
+        self._debug_inter_std = inter_std.detach().cpu()
+        self._debug_inter_sum = inter_sum.detach().cpu()
+
         inter_e = inter_e[:, :, None]
         inter_std = inter_std[:, :, None]
         inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
 
-        graph_logits = self.transformer_readout((inter_e, inter_std, inter_sum))
+        graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
 
         output = {
         "coupling_class": graph_logits  # [n_nodes, n_classes]
