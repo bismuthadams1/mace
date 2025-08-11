@@ -456,11 +456,10 @@ def take_step(
         #-----------------------------------------
         step = 0
         #-------------------monitor the activation
-        logging.info("LinearReadoutBlock grad norm:", model.readouts[0].linear.weight.grad.norm())
+        # logging.info("LinearReadoutBlock grad norm:", model.readouts[0].linear.weight.grad.norm())
 
-        logging.info("inter_e grad:", model._debug_inter_e.grad if hasattr(model, "_debug_inter_e") else "not retained")
-        logging.info("inter_std grad:", model._debug_inter_std.grad if hasattr(model, "_debug_inter_std") else "not retained")
-        logging.info("inter_sum grad:", model._debug_inter_sum.grad if hasattr(model, "_debug_inter_sum") else "not retained")
+        grad = getattr(getattr(model, "_debug_inter_e", None), "grad", None)
+        logging.info("inter_e grad norm: %s", "None" if grad is None else f"{grad.norm().item():.3e}")
 
         for name, param in model.named_parameters():
             if param.grad is not None:

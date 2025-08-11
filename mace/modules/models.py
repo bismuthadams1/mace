@@ -1243,10 +1243,10 @@ class CouplingClassifier(torch.nn.Module):
                 #     )
             
             self.readouts.append(
-                LinearReadoutBlock(hidden_irreps, irrep_out=o3.Irreps("16x0e"))
+                LinearReadoutBlock(hidden_irreps, irrep_out=o3.Irreps("128x0e"))
             ) # This will pool the final node features to a single vector for the transformer readout
             
-            final_irreps = o3.Irreps("16x0e") # This is the final irreps for the transformer readout
+            final_irreps = o3.Irreps("128x0e") # This is the final irreps for the transformer readout
 
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps=MLP_irreps
@@ -1321,37 +1321,53 @@ class CouplingClassifier(torch.nn.Module):
         logging.info(node_out.flatten())
         inter_e = scatter_mean(
             src= node_out,
-            index=data['batch'].unsqueeze(-1), 
+            index=data['batch'], #.unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_std = scatter_std(
             src=node_out,
-            index=data['batch'].unsqueeze(-1), 
+            index=data['batch'], #.unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
         inter_sum = scatter_sum(
             src=node_out,
-            index=data['batch'].unsqueeze(-1), 
+            index=data['batch'], #.unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
 
+        logging.info('scatter out shape:')
+        logging.info(inter_sum.shape)
+
         inter_e.retain_grad()
-        inter_std.retain_grad()
-        inter_sum.retain_grad()
+        # inter_std.retain_grad()
+        # inter_sum.retain_grad()
 
-        # Store for later inspection after backward
-        self._debug_inter_e = inter_e.detach().cpu()
-        self._debug_inter_std = inter_std.detach().cpu()
-        self._debug_inter_sum = inter_sum.detach().cpu()
+        # # Store for later inspection after backward
+        self._debug_inter_e = inter_e #.detach().cpu()
+        # self._debug_inter_std = inter_std.detach().cpu()
+        # self._debug_inter_sum = inter_sum.detach().cpu()
 
-        inter_e = inter_e[:, :, None]
-        inter_std = inter_std[:, :, None]
-        inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
+        # inter_e = inter_e[:, :, None]
+        # inter_std = inter_std[:, :, None]
+        # inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
+    
+        inter_e = inter_e[:, None, :]
+        # inter_std = inter_std[:, None, :]
+        # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
 
-        graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
+
+        logging.info('scatter out extend shape:')
+        logging.info(inter_sum.shape)
+
+        # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
+        graph_logits = self.readouts[-1](inter_e).squeeze(-1) # [n_graphs, 128]
+
+        logging.info('scatter out extend shape:')
+        logging.info(graph_logits.shape)
+
 
         output = {
         "coupling_class": graph_logits  # [n_nodes, n_classes]

@@ -89,20 +89,29 @@ def weighted_classifier_loss(
     pred: TensorDict,
     pos_weight: torch.Tensor,
     ddp: Optional[bool] = None,
+    global_scale: float = 50.0,   # try 10, 50, 100 to see grads wake up
 ) -> torch.Tensor:
+    #logging info
     logging.info(f"classifier in {ref["coupling_class"]}")
-    logging.info(f"classifier out { pred["coupling_class"]}")
+    logging.info(f"classifier out {pred["coupling_class"]}")
     logging.info(f"classifier out (logits) {torch.sigmoid(pred["coupling_class"])}")
     logging.info(f"classifier in {ref['coupling_class'].shape} shape")
     logging.info(f"classifier out {pred['coupling_class'].shape} shape")
+
+    logits = pred["coupling_class"].squeeze(-1)
+    target = ref["coupling_class"].to(logits.dtype)
+    pw = pos_weight.to(device=logits.device, dtype=logits.dtype)
+
     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-        pred["coupling_class"],  # probabilities in logits
-        ref["coupling_class"],     # 0.0 or 1.0
+        logits,  # probabilities in logits
+        target,     # 0.0 or 1.0
         reduction="none",
-        pos_weight = torch.tensor(pos_weight)
+        pos_weight = pw
     )
-    weighted = per_graph_loss * ref.weight * ref.energy_weight #Adjust weights to match imbalance in the dataset
-    return reduce_loss(weighted, ddp)
+    logging.info(f"ref weight {ref.weight}")
+    weighted_and_scaled = per_graph_loss * ref.weight * ref.energy_weight * global_scale #Adjust weights to match imbalance in the dataset
+
+    return reduce_loss(weighted_and_scaled, ddp)
 
 # ------------------------------------------------------------------------------
 # Graph-level Loss Functions
