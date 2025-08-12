@@ -178,7 +178,8 @@ class TrainingPlotter:
 
             subfigs = fig.subfigures(2, 1, height_ratios=[1, 1], hspace=0.05)
             axsTop = subfigs[0].subplots(1, 2, sharey=False)
-            axsBottom = subfigs[1].subplots(1, len(quantities), sharey=False)
+            axsBottom = subfigs[1].subplots(1, len(quantities), sharey=False, squeeze=False)
+            axsBottom = axsBottom.ravel()  # now always a 1D array of Axes
 
             plot_epoch_dependence(axsTop, data, head, model_epoch, labels)
 
@@ -380,23 +381,32 @@ def plot_inference_from_results(
                 )
 
             elif key == "coupling_class" and "coupling_class" in result:
-                scatter = ax.scatter(
-                    result["coupling_class"]["reference"],
-                    result["coupling_class"]["predicted"],
-                    marker=marker,
-                    color=fixed_color_train_valid,
-                    label=name,  
+                # scatter = ax.scatter(
+                #     result["coupling_class"]["reference"],
+                #     result["coupling_class"]["predicted"],
+                #     marker=marker,
+                #     color=fixed_color_train_valid,
+                #     label=name,  
+                # )
+                y_true = result["coupling_class"]["reference"]
+                y_pred = result["coupling_class"]["predicted"]
+                ax.scatter(
+                    y_pred, y_true,
+                    marker=marker, color=fixed_color_train_valid, alpha=0.5, label=name
                 )
+                ax.set_xlabel("Predicted probability")
+                ax.set_ylabel("Reference label")
+                ax.set_yticks([0, 1])
             
-            elif key == "coupling_class" and "coupling_class" in result:
-                scatter = ax.hist(
-                    result["coupling_class"]["reference"],
-                    result["coupling_class"]["predicted"],
-                    # marker=marker,
-                    color=fixed_color_train_valid,
-                    label=name,  
-                    bins = 0.001
-                )
+            # elif key == "coupling_class" and "coupling_class" in result:
+            #     scatter = ax.hist(
+            #         result["coupling_class"]["reference"],
+            #         result["coupling_class"]["predicted"],
+            #         # marker=marker,
+            #         color=fixed_color_train_valid,
+            #         label=name,  
+            #         bins = 0.001
+            #     )
             
             elif key == "effective_coupling" and "effective_coupling" in result:
                 scatter = ax.scatter(

@@ -416,15 +416,15 @@ def take_step(
     batch_dict = batch.to_dict()
 
     #------ SignalTap for monitoring activations and gradients during training ------
-    tapped = SignalTap(
-        modules = [
-            model.node_embedding,
-            *model.interactions,
-            *model.products,
-            *model.readouts
-        ],
-        every = 10          # print every 10 optimisation steps
-    )
+    # tapped = SignalTap(
+    #     modules = [
+    #         model.node_embedding,
+    #         *model.interactions,
+    #         *model.products,
+    #         *model.readouts
+    #     ],
+    #     every = 10          # print every 10 optimisation steps
+    # )
     #-------------------------------------------------------------------------------
 
     def closure():
@@ -466,7 +466,7 @@ def take_step(
                 writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
             writer.add_scalar("loss/train", loss, step)
             step += 1
-        tapped.step()  # Call the step method to print the stats
+        # tapped.step()  # Call the step method to print the stats
         # batch_signal = batch.to_dict()
         # num_graphs = batch["ptr"].numel() - 1
         # with torch.no_grad():

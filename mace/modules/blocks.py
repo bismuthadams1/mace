@@ -1369,7 +1369,9 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
     ):
         super().__init__()
         
-        self.pool_norm = torch.nn.LayerNorm(3)
+        # self.pool_norm = torch.nn.LayerNorm(3)
+        self.pool_norm = torch.nn.LayerNorm(128)
+
 
         input_dim = irreps_out.dim # input dimension for the MLP
         logging.info(f"input dim {input_dim}")
@@ -1393,45 +1395,67 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Linear(mid_dim, 1),
         )
 
-    # def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
-    #     # inter_e, inter_std, inter_sum  = x
-    #     # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
-    #     # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
-    #     momentums = x
-    #     logging.info('momentums 1) out shape:')
-    #     logging.info(momentums.shape)
+    def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
+        # inter_e, inter_std, inter_sum  = x
+        # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
+        # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
+        momentums = x
+        logging.info('momentums 1) out shape:')
+        logging.info(momentums.shape)
 
-    #     # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
-    #     # logging.info(f"momentums into attention: {momentums}")
+        # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
+        # logging.info(f"momentums into attention: {momentums}")
         
-    #     logging.info('momentums 2) into attention shape:')
-    #     logging.info(momentums.shape)
+        logging.info('momentums 2) into attention shape:')
+        logging.info(momentums.shape)
 
-    #     att_momentums, _ = self.attn(
-    #         momentums, momentums, momentums
-    #     )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
-    #     momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
+        att_momentums, _ = self.attn(
+            momentums, momentums, momentums
+        )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+        momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
 
-    #     logging.info('momentums 3) out of attention shape:')
-    #     logging.info(momentums.shape)
+        logging.info('momentums 3) out of attention shape:')
+        logging.info(momentums.shape)
 
-    #     momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
-    #     graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]
+        momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
+        graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]
 
-    #     return graph_logits
+        return graph_logits
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: [batch_size, n_graphs, 3] -> [batch_size, n_graphs, 1]
-        """
-        h = torch.nn.LayerNorm(x.shape[-1]).to(x.device)(x)
-        logits = torch.nn.Sequential(
-                torch.nn.Linear(h.shape[-1], 4*h.shape[-1]),
-                torch.nn.GELU(),
-                torch.nn.Linear(4*h.shape[-1], 1),
-            ).to(h.device)(h).squeeze(-1)
-
-        logging.info('logits shape:')
-        logging.info(logits.shape)
+    # def __init__(
+    #     self,
+    #     irreps_out: o3.Irreps,
+    #     MLP_irreps: o3.Irreps,
+    #     cueq_config: Optional[CuEquivarianceConfig] = None,
+    # ):
+    #     super().__init__()
         
-        return logits
+    #     self.pool_norm = torch.nn.LayerNorm(128)
+
+    #     input_dim = irreps_out.dim  # input dimension for the MLP
+    #     logging.info(f"input dim {input_dim}")
+
+    #     self.simple_mapper = torch.nn.Sequential(
+    #         torch.nn.Linear(128, 128*4),
+    #         torch.nn.GELU(),
+    #         torch.nn.Linear(4*128, 1),
+    #     )  # out dimension is 1, input dimension is 1 (inter_e, inter_std, inter_sum)
+
+    # def forward(self, x: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     x: [batch_size, n_graphs, 3] -> [batch_size, n_graphs, 1]
+    #     """
+    #     # h = torch.nn.LayerNorm(x.shape[-1]).to(x.device)(x)
+    #     # logits = torch.nn.Sequential(
+    #     #         torch.nn.Linear(h.shape[-1], 4*h.shape[-1]),
+    #     #         torch.nn.GELU(),
+    #     #         torch.nn.Linear(4*h.shape[-1], 1),
+    #     #     ).to(h.device)(h).squeeze(-1)
+
+    #     # logging.info('logits shape:')
+    #     # logging.info(logits.shape)
+    #     x = self.pool_norm(x)
+    #     logits = self.simple_mapper(x)  # [batch_size, n_graphs, 1]
+    #     logits = logits.squeeze(-1)
+        
+    #     return logits

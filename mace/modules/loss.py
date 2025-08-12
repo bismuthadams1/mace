@@ -98,15 +98,16 @@ def weighted_classifier_loss(
     logging.info(f"classifier in {ref['coupling_class'].shape} shape")
     logging.info(f"classifier out {pred['coupling_class'].shape} shape")
 
-    logits = pred["coupling_class"].squeeze(-1)
+    logits = pred["coupling_class"]#.squeeze(-1) TEMPORARILY REMOVE
     target = ref["coupling_class"].to(logits.dtype)
     pw = pos_weight.to(device=logits.device, dtype=logits.dtype)
+
 
     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         logits,  # probabilities in logits
         target,     # 0.0 or 1.0
         reduction="none",
-        pos_weight = pw
+        # pos_weight = pw
     )
     logging.info(f"ref weight {ref.weight}")
     weighted_and_scaled = per_graph_loss * ref.weight * ref.energy_weight * global_scale #Adjust weights to match imbalance in the dataset

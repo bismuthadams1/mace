@@ -1341,12 +1341,12 @@ class CouplingClassifier(torch.nn.Module):
         logging.info('scatter out shape:')
         logging.info(inter_sum.shape)
 
-        inter_e.retain_grad()
+        # inter_e.retain_grad()
         # inter_std.retain_grad()
         # inter_sum.retain_grad()
 
         # # Store for later inspection after backward
-        self._debug_inter_e = inter_e #.detach().cpu()
+        # self._debug_inter_e = inter_e #.detach().cpu()
         # self._debug_inter_std = inter_std.detach().cpu()
         # self._debug_inter_sum = inter_sum.detach().cpu()
 
@@ -1363,7 +1363,7 @@ class CouplingClassifier(torch.nn.Module):
         logging.info(inter_sum.shape)
 
         # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
-        graph_logits = self.readouts[-1](inter_e).squeeze(-1) # [n_graphs, 128]
+        graph_logits = self.readouts[-1](inter_e)#.squeeze(-1) # [n_graphs, 128]
 
         logging.info('scatter out extend shape:')
         logging.info(graph_logits.shape)

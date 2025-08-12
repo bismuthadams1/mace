@@ -710,6 +710,7 @@ def run(args) -> None:
         )
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
+    logging.info(f"data loader length: {len(train_loader)}")
     args.avg_num_neighbors = get_avg_num_neighbors(head_configs, args, train_loader, device)
 
     # Model
