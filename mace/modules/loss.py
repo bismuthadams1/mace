@@ -107,7 +107,7 @@ def weighted_classifier_loss(
         logits,  # probabilities in logits
         target,     # 0.0 or 1.0
         reduction="none",
-        # pos_weight = pw
+        pos_weight = pw
     )
     logging.info(f"ref weight {ref.weight}")
     weighted_and_scaled = per_graph_loss * ref.weight * ref.energy_weight * global_scale #Adjust weights to match imbalance in the dataset

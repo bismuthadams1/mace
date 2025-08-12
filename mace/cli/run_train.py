@@ -1034,7 +1034,7 @@ def run(args) -> None:
             skip_heads=skip_heads,
         )
         logging.info("Error-table on TRAIN and VALID:\n" + str(table_train_valid))
-
+        logging.info(f"test data loader: {test_data_loader}")
         if test_data_loader:
             table_test = create_error_table(
                 table_type=args.error_table,

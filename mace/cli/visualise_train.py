@@ -283,12 +283,16 @@ def plot_epoch_dependence(
 
         main_ax.plot(
             valid_data["epoch"],
-            valid_data[key]["mean"] * 1e3,
+            valid_data[key]["mean"] * 1e3
+              if not axis_label == "Accuracy of Classifier [%]" else valid_data[key]["mean"] * 1e2,
             color=color,
             label=label,
             linewidth=1,
         )
-        main_ax.set_yscale("log")
+        if axis_label == "Accuracy of Classifier [%]":
+            main_ax.set_ylim(0, 100)  # Set y-axis limits for accuracy
+        else:
+            main_ax.set_yscale("log")
         main_ax.set_ylabel(axis_label, color=color)
         main_ax.tick_params(axis="y", colors=color)
     ax.axvline(
@@ -381,32 +385,14 @@ def plot_inference_from_results(
                 )
 
             elif key == "coupling_class" and "coupling_class" in result:
-                # scatter = ax.scatter(
-                #     result["coupling_class"]["reference"],
-                #     result["coupling_class"]["predicted"],
-                #     marker=marker,
-                #     color=fixed_color_train_valid,
-                #     label=name,  
-                # )
                 y_true = result["coupling_class"]["reference"]
                 y_pred = result["coupling_class"]["predicted"]
-                ax.scatter(
-                    y_pred, y_true,
-                    marker=marker, color=fixed_color_train_valid, alpha=0.5, label=name
-                )
+                h = ax.hist2d(y_pred, y_true, bins=[3000, 2], cmap="Blues")  # 50 bins over prob, 2 over label
+                plt.colorbar(h[3], ax=ax, label="count")
                 ax.set_xlabel("Predicted probability")
                 ax.set_ylabel("Reference label")
                 ax.set_yticks([0, 1])
-            
-            # elif key == "coupling_class" and "coupling_class" in result:
-            #     scatter = ax.hist(
-            #         result["coupling_class"]["reference"],
-            #         result["coupling_class"]["predicted"],
-            #         # marker=marker,
-            #         color=fixed_color_train_valid,
-            #         label=name,  
-            #         bins = 0.001
-            #     )
+
             
             elif key == "effective_coupling" and "effective_coupling" in result:
                 scatter = ax.scatter(
