@@ -1376,11 +1376,11 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         input_dim = irreps_out.dim # input dimension for the MLP
         logging.info(f"input dim {input_dim}")
 
-        # self.mapper = torch.nn.Sequential(
-        #     torch.nn.Linear(3,1),
-        #     torch.nn.GELU(),
-        #     torch.nn.Dropout(0.01),
-        # ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(128,128),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+        ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
 
         mid_dim = MLP_irreps.num_irreps
         logging.info(f"mid dim {mid_dim}")
@@ -1399,7 +1399,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         # inter_e, inter_std, inter_sum  = x
         # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
         # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
-        momentums = x
+        momentums = self.mapper(x)
         logging.info('momentums 1) out shape:')
         logging.info(momentums.shape)
         logging.info(f'momentums 1) into attention: {momentums.detach().cpu().numpy().flatten()}')
@@ -1407,16 +1407,12 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
         # logging.info(f"momentums into attention: {momentums}")
         
-        logging.info('momentums 2) into attention shape:')
-        logging.info(momentums.shape)
-        logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
-
         att_momentums, _ = self.attn(
             momentums, momentums, momentums
         )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
         momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
 
-        logging.info('momentums 3) out of attention shape:')
+        logging.info('momentums 2) out of attention shape:')
         logging.info(momentums.shape)
         logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
 

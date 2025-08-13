@@ -1196,6 +1196,7 @@ class CouplingClassifier(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
+
             # self.readouts.append(
             #     LinearReadoutBlock(hidden_irreps)
             # )
@@ -1247,6 +1248,7 @@ class CouplingClassifier(torch.nn.Module):
             ) # This will pool the final node features to a single vector for the transformer readout
             
             final_irreps = o3.Irreps("128x0e") # This is the final irreps for the transformer readout
+            self.pre_ln = torch.nn.LayerNorm(final_irreps.dim)
 
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps=MLP_irreps
@@ -1353,8 +1355,10 @@ class CouplingClassifier(torch.nn.Module):
         # inter_e = inter_e[:, :, None]
         # inter_std = inter_std[:, :, None]
         # inter_sum = inter_sum[:, :, None] # [n_graphs,16, 1]
-        inter_e = inter_sum #Quick pooling replacement
-        logging.info(f"inter_e in values {inter_e.detach().cpu().numpy().tolist()}")
+        counts = torch.bincount(data['batch'], minlength=num_graphs).float().unsqueeze(1)  # [B, 1]
+        pooled = inter_e / counts.clamp_min(1.0).sqrt() 
+        iter_e_norm = self.pre_ln(pooled) # [n_graphs, 128]
+        logging.info(f"inter_e in values {iter_e_norm.detach().cpu().numpy().tolist()}")
         inter_e = inter_e[:, None, :]
         # inter_std = inter_std[:, None, :]
         # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
