@@ -894,6 +894,13 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str2bool,
         default=False,
     )
+
+    parser.add_argument(
+        "--coupling_threshold",
+        help="Threshold for the coupling class in meV",
+        type=float,
+        default=0.09,
+    )
     
     return parser
 

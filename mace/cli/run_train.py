@@ -303,7 +303,10 @@ def run(args) -> None:
                 f"Total number of configurations: train={len(collections.train)}, valid={len(collections.valid)}, "
                 f"tests=[{', '.join([name + ': ' + str(len(test_configs)) for name, test_configs in collections.tests])}],"
             )
+        logging.info(f"adding coupling class {args.coupling_threshold} to head {head_config.head_name}")
+        head_config.collections.coupling_threshold = args.coupling_threshold
         head_configs.append(head_config)
+
 
     if all(
         check_path_ase_read(head_config.train_file[0]) for head_config in head_configs
@@ -598,7 +601,7 @@ def run(args) -> None:
         if head_config.valid_file is None and head_config.collections.valid:
             valid_sets[head_config.head_name] = [
                 data.AtomicData.from_config(
-                    config, z_table=z_table, cutoff=args.r_max, heads=heads
+                    config, z_table=z_table, cutoff=args.r_max, heads=heads, coupling_threshold=args.coupling_threshold
                 )
                 for config in head_config.collections.valid
             ]
@@ -901,7 +904,7 @@ def run(args) -> None:
             for name, subset in head_config.collections.tests:
                 test_sets[name] = [
                     data.AtomicData.from_config(
-                        config, z_table=z_table, cutoff=args.r_max, heads=heads
+                        config, z_table=z_table, cutoff=args.r_max, heads=heads, coupling_threshold=args.coupling_threshold
                     )
                     for config in subset
                 ]

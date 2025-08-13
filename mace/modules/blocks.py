@@ -1402,12 +1402,14 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         momentums = x
         logging.info('momentums 1) out shape:')
         logging.info(momentums.shape)
+        logging.info(f'momentums 1) into attention: {momentums.detach().cpu().numpy().flatten()}')
 
         # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
         # logging.info(f"momentums into attention: {momentums}")
         
         logging.info('momentums 2) into attention shape:')
         logging.info(momentums.shape)
+        logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
 
         att_momentums, _ = self.attn(
             momentums, momentums, momentums
@@ -1416,6 +1418,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         logging.info('momentums 3) out of attention shape:')
         logging.info(momentums.shape)
+        logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
 
         momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
         graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]

@@ -84,35 +84,73 @@ def weighted_mean_absolute_error_energy(
 # Binary Coupling Loss Function
 # -------------------------------------------------------------------------------
 
+# def weighted_classifier_loss(
+#     ref: Batch,
+#     pred: TensorDict,
+#     pos_weight: torch.Tensor,
+#     ddp: Optional[bool] = None,
+#     global_scale: float = 50.0,   # try 10, 50, 100 to see grads wake up
+# ) -> torch.Tensor:
+#     #logging info
+#     logging.info(f"classifier in {ref["coupling_class"]}")
+#     logging.info(f"classifier out {pred["coupling_class"]}")
+#     logging.info(f"classifier out (logits) {torch.sigmoid(pred["coupling_class"])}")
+#     logging.info(f"classifier in {ref['coupling_class'].shape} shape")
+#     logging.info(f"classifier out {pred['coupling_class'].shape} shape")
+
+#     logits = pred["coupling_class"]#.squeeze(-1) TEMPORARILY REMOVE
+#     target = ref["coupling_class"].to(logits.dtype)
+#     target = target.reshape_as(logits) 
+#     logging.info(f"target input with logits {target}")
+#     pw = pos_weight.to(device=logits.device, dtype=logits.dtype)
+
+
+#     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+#         logits,  # probabilities in logits
+#         target,     # 0.0 or 1.0
+#         reduction="none",
+#         pos_weight = pw
+#     )
+#     # if you *also* have per-sample weights, include them; else set w=1
+#     w = torch.ones_like(per_graph_loss)
+#     if hasattr(ref, "weight"):        w = w * ref.weight.reshape(-1).to(logits.dtype, logits.device)
+#     if hasattr(ref, "energy_weight"): w = w * ref.energy_weight.reshape(-1).to(logits.dtype, logits.device)
+
+#     loss = (per_graph_loss * w).sum() / w.sum().clamp_min(1e-8) 
+
+#     return reduce_loss(loss, ddp)
+
 def weighted_classifier_loss(
-    ref: Batch,
-    pred: TensorDict,
+    ref,                   # Batch
+    pred,                  # TensorDict
     pos_weight: torch.Tensor,
-    ddp: Optional[bool] = None,
-    global_scale: float = 50.0,   # try 10, 50, 100 to see grads wake up
-) -> torch.Tensor:
-    #logging info
-    logging.info(f"classifier in {ref["coupling_class"]}")
-    logging.info(f"classifier out {pred["coupling_class"]}")
-    logging.info(f"classifier out (logits) {torch.sigmoid(pred["coupling_class"])}")
-    logging.info(f"classifier in {ref['coupling_class'].shape} shape")
-    logging.info(f"classifier out {pred['coupling_class'].shape} shape")
+    ddp: bool | None = None,
+    use_balanced_sampler: bool = True,  
+):
+    logits = pred["coupling_class"].reshape(-1)  # [B]
+    target = ref["coupling_class"].to(device=logits.device, dtype=logits.dtype).reshape(-1)
 
-    logits = pred["coupling_class"]#.squeeze(-1) TEMPORARILY REMOVE
-    target = ref["coupling_class"].to(logits.dtype)
-    pw = pos_weight.to(device=logits.device, dtype=logits.dtype)
+    # If you balance batches with a sampler, don't also reweight positives here.
+    pw = (torch.tensor(1.0, device=logits.device, dtype=logits.dtype)
+          if use_balanced_sampler
+          else pos_weight.to(device=logits.device, dtype=logits.dtype))
 
+    per_ex = torch.nn.functional.binary_cross_entropy_with_logits(
+        logits, target, reduction="none", pos_weight=pw
+    )  # [B]
 
-    per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-        logits,  # probabilities in logits
-        target,     # 0.0 or 1.0
-        reduction="none",
-        pos_weight = pw
-    )
-    logging.info(f"ref weight {ref.weight}")
-    weighted_and_scaled = per_graph_loss * ref.weight * ref.energy_weight * global_scale #Adjust weights to match imbalance in the dataset
+    # Per-sample weights (optional). Make sure device/dtype are set via keywords.
+    w = torch.ones_like(per_ex)
+    if hasattr(ref, "weight"):
+        w = w * ref.weight.to(device=logits.device, dtype=logits.dtype).reshape_as(per_ex)
+    if hasattr(ref, "energy_weight"):
+        w = w * ref.energy_weight.to(device=logits.device, dtype=logits.dtype).reshape_as(per_ex)
 
-    return reduce_loss(weighted_and_scaled, ddp)
+    # Proper weighted mean: normalize by sum of weights (not batch size)
+    loss = (per_ex * w).sum() / w.sum().clamp_min(1e-8)
+
+    # If your training loop expects reduce_loss(...), keep this call; otherwise just `return loss`.
+    return loss
 
 # ------------------------------------------------------------------------------
 # Graph-level Loss Functions

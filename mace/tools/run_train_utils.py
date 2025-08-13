@@ -69,7 +69,7 @@ def load_dataset_for_path(
         ), "Collection must be provided for ASE readable files"
         return [
             data.AtomicData.from_config(
-                config, z_table=z_table, cutoff=r_max, heads=heads
+                config, z_table=z_table, cutoff=r_max, heads=heads,
             )
             for config in collection
         ]

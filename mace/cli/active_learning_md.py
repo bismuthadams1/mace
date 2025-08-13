@@ -71,6 +71,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="MACE_",
     )
+
     return parser.parse_args()
 
 

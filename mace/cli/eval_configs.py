@@ -118,6 +118,14 @@ def parse_args() -> argparse.Namespace:
         required=False,
     )
 
+    parser.add_argument(
+        "--coupling_threshold",
+        help="Threshold for coupling class",
+        type=float,
+        default=0.09,
+        required=False,
+    )
+
     return parser.parse_args()
 
 
@@ -159,7 +167,7 @@ def run(args: argparse.Namespace) -> None:
     data_loader = torch_geometric.dataloader.DataLoader(
         dataset=[
             data.AtomicData.from_config(
-                config, z_table=z_table, cutoff=float(model.r_max), heads=heads
+                config, z_table=z_table, cutoff=float(model.r_max), heads=heads, 
             )
             for config in configs
         ],

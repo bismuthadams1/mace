@@ -1352,8 +1352,9 @@ class CouplingClassifier(torch.nn.Module):
 
         # inter_e = inter_e[:, :, None]
         # inter_std = inter_std[:, :, None]
-        # inter_sum = inter_sum[:, :, None] # [n_graphs,16,1]
-    
+        # inter_sum = inter_sum[:, :, None] # [n_graphs,16, 1]
+        inter_e = inter_sum #Quick pooling replacement
+        logging.info(f"inter_e in values {inter_e.detach().cpu().numpy().tolist()}")
         inter_e = inter_e[:, None, :]
         # inter_std = inter_std[:, None, :]
         # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
