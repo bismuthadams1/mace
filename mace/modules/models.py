@@ -18,6 +18,7 @@ import logging
 from mace.modules.embeddings import GenericJointEmbedding
 from mace.modules.radial import ZBLBasis
 from mace.tools.scatter import scatter_sum, scatter_mean, scatter_std
+from mace.modules.wrapper_ops import Linear
 
 from .blocks import (
     AtomicEnergiesBlock,
@@ -105,8 +106,8 @@ class MACE(torch.nn.Module):
         self.use_last_readout_only = use_last_readout_only
 
         # Embedding
-        node_attr_irreps = o3.Irreps([(num_elements, (0, 1))])
-        node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))])
+        node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) #equivalent to o3.Irreps("{num_elements}x0e + {num_elements}x1e")
+        node_feats_irreps = o3.Irreps([(hidden_irreps.count(o3.Irrep(0, 1)), (0, 1))]) #equivalent to
         self.node_embedding = LinearNodeEmbeddingBlock(
             irreps_in=node_attr_irreps,
             irreps_out=node_feats_irreps,
@@ -1142,6 +1143,8 @@ class CouplingClassifier(torch.nn.Module):
                 "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
             )
             assert atomic_energies is None
+            # Ensure that the hidden irreps are in the correct format
+            self.float()
 
             # Embedding
             node_attr_irreps = o3.Irreps([(num_elements, (0, 1))]) 
@@ -1243,12 +1246,24 @@ class CouplingClassifier(torch.nn.Module):
                 #         LinearReadoutBlock(hidden_irreps)
                 #     )
             
+            final_irreps = o3.Irreps("16x0e + 16x1e") # This is the final irreps for the transformer readout
+            
             self.readouts.append(
-                LinearReadoutBlock(hidden_irreps, irrep_out=o3.Irreps("128x0e"))
+                LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
             ) # This will pool the final node features to a single vector for the transformer readout
             
-            final_irreps = o3.Irreps("128x0e") # This is the final irreps for the transformer readout
+            # final_irreps = final_irreps # This is the final irreps for the transformer readout
             self.pre_ln = torch.nn.LayerNorm(final_irreps.dim)
+
+            # D = 128  # should be 128 
+
+            # Gating MLP: node [N,D] -> gate [N,1]
+            # self.pool_gate = torch.nn.Sequential(
+            #     LinearReadoutBlock(final_irreps, o3.Irreps("16x0e + 16x1e")),
+            #     torch.nn.GELU(),
+            #     LinearReadoutBlock(D // 4, 1),
+            # )
+
 
             self.readouts.append(TransformerGraphReadoutBlock(
                 final_irreps, MLP_irreps=MLP_irreps
@@ -1321,27 +1336,31 @@ class CouplingClassifier(torch.nn.Module):
         # last_node_out = node_outs_total[-1]
         logging.info('node outs:')
         logging.info(node_out.flatten())
+
+        #-------
+
         inter_e = scatter_mean(
             src= node_out,
             index=data['batch'], #.unsqueeze(-1), 
             dim=0,
             dim_size=num_graphs,
         )  # [n_graphs,16]
-        inter_std = scatter_std(
-            src=node_out,
-            index=data['batch'], #.unsqueeze(-1), 
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
-        inter_sum = scatter_sum(
-            src=node_out,
-            index=data['batch'], #.unsqueeze(-1), 
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
+        # inter_std = scatter_std(
+        #     src=node_out,
+        #     index=data['batch'], #.unsqueeze(-1), 
+        #     dim=0,
+        #     dim_size=num_graphs,
+        # )  # [n_graphs,16]
+        # inter_sum = scatter_sum(
+        #     src=node_out,
+        #     index=data['batch'], #.unsqueeze(-1), 
+        #     dim=0,
+        #     dim_size=num_graphs,
+        # )  # [n_graphs,16]
+        #-------
 
-        logging.info('scatter out shape:')
-        logging.info(inter_sum.shape)
+        # logging.info('scatter out shape:')
+        # logging.info(inter_sum.shape)
 
         # inter_e.retain_grad()
         # inter_std.retain_grad()
@@ -1355,17 +1374,22 @@ class CouplingClassifier(torch.nn.Module):
         # inter_e = inter_e[:, :, None]
         # inter_std = inter_std[:, :, None]
         # inter_sum = inter_sum[:, :, None] # [n_graphs,16, 1]
-        counts = torch.bincount(data['batch'], minlength=num_graphs).float().unsqueeze(1)  # [B, 1]
-        pooled = inter_e / counts.clamp_min(1.0).sqrt() 
-        iter_e_norm = self.pre_ln(pooled) # [n_graphs, 128]
-        logging.info(f"inter_e in values {iter_e_norm.detach().cpu().numpy().tolist()}")
+        #-------
+        # counts = torch.bincount(data['batch'], minlength=num_graphs).float().unsqueeze(1)  # [B, 1]
+        # pooled = inter_e / counts.clamp_min(1.0).sqrt() 
+        #-------
+        # gate   = torch.sigmoid(self.pool_gate(node_out))           # [N,1]
+        # sum_   = scatter_sum(gate * node_out, data['batch'], dim=0)   # [B,128]
+        # pooled = self.pre_ln(sum_ / counts.clamp_min(1.0).sqrt())
+        # iter_e_norm = self.pre_ln(pooled) # [n_graphs, 128]
+        # logging.info(f"inter_e in values {iter_e_norm.detach().cpu().numpy().tolist()}")
         inter_e = inter_e[:, None, :]
         # inter_std = inter_std[:, None, :]
         # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
 
 
-        logging.info('scatter out extend shape:')
-        logging.info(inter_sum.shape)
+        logging.info('inter_e out extend shape:')
+        logging.info(inter_e.shape)
 
         # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
         graph_logits = self.readouts[-1](inter_e)#.squeeze(-1) # [n_graphs, 128]

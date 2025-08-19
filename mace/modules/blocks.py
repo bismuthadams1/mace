@@ -1359,67 +1359,158 @@ class ScaleShiftBlock(torch.nn.Module):
         )
         return f"{self.__class__.__name__}(scale={formatted_scale}, shift={formatted_shift})"
 
+
+class InvariantizeL0fromL1(torch.nn.Module):
+    """
+    Input: IrrepsArray with irreps_in containing some 0e and 1e channels.
+    Output: tensor of pure scalars (0e): [B, T, D0] suitable for LN/MLP/MHA.
+    Invariants used: norms of 1e channels and selected quadratic 1e⊗1e→0e.
+    """
+    def __init__(self, irreps_in: o3.Irreps, num_quad_pairs: int = 16, out_dim: int = 128):
+        super().__init__()
+        self.irreps_in = irreps_in        # e.g. "16x0e + 16x1e"
+        irreps_out = o3.Irreps(f"{out_dim}x0e")  # pure scalars
+
+        instr = []
+        # Example: only couple 1e⊗1e→0e paths
+        one_idxs = [i for i, (_, ir) in enumerate(irreps_in) if ir.l == 1]
+        for i_in1 in one_idxs:
+            for i_in2 in one_idxs:
+                # choose an output slot (e.g., 0) or distribute over range(out_dim)
+                i_out = 0
+                instr.append((i_in1, i_in2, i_out, "uvw", 1.0))
+
+        self.tp = o3.TensorProduct(
+            irreps_in, irreps_in,
+            irreps_out=irreps_out,
+            instructions=instr,              # NOTE: (i_in1, i_in2, i_out, "uvw", weight)
+            shared_weights=True,
+            internal_weights=True,
+            normalization="component",
+)
+
+    def forward(self, x):  # x: IrrepsArray with shape [B, T, C]
+        tp = []
+        tp0 = self.tp(x, x)     # IrrepsArray (only 0e by construction)
+        # tp = [tp0.tensor]       # [B, T, n_tp]
+        return tp0
+
 @compile_mode("script")
 class TransformerGraphReadoutBlock(torch.nn.Module):
-    def __init__(
-        self,
-        irreps_out: o3.Irreps,
-        MLP_irreps: o3.Irreps,
-        cueq_config: Optional[CuEquivarianceConfig] = None,
-    ):
+    def __init__(self, irreps_out: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
         super().__init__()
-        
-        # self.pool_norm = torch.nn.LayerNorm(3)
-        self.pool_norm = torch.nn.LayerNorm(128)
-
-
-        input_dim = irreps_out.dim # input dimension for the MLP
-        logging.info(f"input dim {input_dim}")
-
-        self.mapper = torch.nn.Sequential(
-            torch.nn.Linear(128,128),
-            torch.nn.GELU(),
-            torch.nn.Dropout(0.01),
-        ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
-
-        mid_dim = MLP_irreps.num_irreps
-        logging.info(f"mid dim {mid_dim}")
-        self.attn = torch.nn.MultiheadAttention(
-            input_dim, 8, 0.05, batch_first=True
+        # 1) Map mixed irreps → enriched scalars (0e)
+        self.invariantizer = InvariantizeL0fromL1(
+            irreps_in=irreps_out,            # e.g., "16x0e + 16x1e"
+            num_quad_pairs=16,
+            out_dim=128                      # produces [B, T, 128] scalars
         )
 
+        # 2) Scalar-only stack
+        self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
+
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(128, 128),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+        )
+
+        d_model = 128
+        self.attn = torch.nn.MultiheadAttention(d_model, num_heads=8, dropout=0.05, batch_first=True)
+
+        mid_dim = MLP_irreps.num_irreps  # your existing choice for hidden width
         self.fc = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, mid_dim),
+            torch.nn.Linear(d_model, mid_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
         )
 
-    def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
-        # inter_e, inter_std, inter_sum  = x
-        # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
-        # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
-        momentums = self.mapper(x)
-        logging.info('momentums 1) out shape:')
-        logging.info(momentums.shape)
-        logging.info(f'momentums 1) into attention: {momentums.detach().cpu().numpy().flatten()}')
+    def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
+        # Step A: invariantize to pure scalars
+        h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)
 
-        # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
-        # logging.info(f"momentums into attention: {momentums}")
+        # Optional: if you currently have just one token T=1, attention degenerates.
+        # Consider creating a few tokens (sum/mean/std per group, ring tokens, etc.).
+        h = self.pool_norm(h)
+        h = self.mapper(h)                       # [B, T, 128]
+
+        attn_out, _ = self.attn(h, h, h)         # [B, T, 128]
+        h = h + attn_out
+
+        # If T > 1, do attention pooling; if T == 1, just squeeze:
+        if h.size(1) > 1:
+            # simple CLS-free pooling: mean over tokens (or use a learned query)
+            h = h.mean(dim=1)
+        else:
+            h = h[:, 0, :]
+
+        logits = self.fc(h).squeeze(-1)          # [B]
+        return logits
+
+
+# @compile_mode("script")
+# class TransformerGraphReadoutBlock(torch.nn.Module):
+#     def __init__(
+#         self,
+#         irreps_out: o3.Irreps,
+#         MLP_irreps: o3.Irreps,
+#         cueq_config: Optional[CuEquivarianceConfig] = None,
+#     ):
+#         super().__init__()
         
-        att_momentums, _ = self.attn(
-            momentums, momentums, momentums
-        )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
-        momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
+#         # self.pool_norm = torch.nn.LayerNorm(3)
+#         # self.pool_norm = torch.nn.LayerNorm(128)
 
-        logging.info('momentums 2) out of attention shape:')
-        logging.info(momentums.shape)
-        logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
 
-        momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
-        graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]
+#         input_dim = irreps_out.dim # input dimension for the MLP
+#         # logging.info(f"input dim {input_dim}")
 
-        return graph_logits
+#         self.mapper = torch.nn.Sequential(
+#             # torch.nn.Linear(128,128)
+#             Linear(irreps_out, o3.Irreps("64x0e"), cueq_config=cueq_config),
+#             torch.nn.GELU(),
+#             torch.nn.Dropout(0.01),
+#         ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
+
+#         mid_dim = MLP_irreps.num_irreps
+#         logging.info(f"mid dim {mid_dim}")
+#         self.attn = torch.nn.MultiheadAttention(
+#             input_dim, 8, 0.05, batch_first=True
+#         )
+
+#         self.fc = torch.nn.Sequential(
+#             torch.nn.Linear(input_dim, mid_dim),
+#             torch.nn.GELU(),
+#             torch.nn.Dropout(0.01),
+#             torch.nn.Linear(mid_dim, 1),
+#         )
+
+#     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
+#         # inter_e, inter_std, inter_sum  = x
+#         # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
+#         # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
+#         momentums = self.mapper(x)
+#         logging.info('momentums 1) out shape:')
+#         logging.info(momentums.shape)
+#         logging.info(f'momentums 1) into attention: {momentums.detach().cpu().numpy().flatten()}')
+
+#         # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
+#         # logging.info(f"momentums into attention: {momentums}")
+        
+#         att_momentums, _ = self.attn(
+#             momentums, momentums, momentums
+#         )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
+#         momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
+
+#         logging.info('momentums 2) out of attention shape:')
+#         logging.info(momentums.shape)
+#         logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
+
+#         momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
+#         graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]
+
+#         return graph_logits
 
     # def __init__(
     #     self,
