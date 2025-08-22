@@ -1263,8 +1263,8 @@ class CouplingClassifier(torch.nn.Module):
 
             # ---- NEW: per-node invariantizer pieces ----
             # all pairs of 1o blocks: 1o ⊗ 1o → 0e basically turns vectors into scalars
-            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1]
-            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs]
+            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1] 
+            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs] #index pairs of 1o irreps
 
             self.tp11 = o3.TensorProduct(
                 final_irreps, final_irreps,
@@ -1279,9 +1279,9 @@ class CouplingClassifier(torch.nn.Module):
 
             # sizes for projector: [scalar_pass_through | norms | tp11]
             n0 = sum(m for m, ir in final_irreps if ir.l == 0)   # total scalar channels
-            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32
-            tp_dim     = self.tp11.irreps_out.dim                             # 1
-            concat_dim = n0 + norms_dim + tp_dim                                # 16 + 32 + 1 = 49 
+            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32, where we norm both 0e and 1o blocks (norm of 0e is abs, norm of 1o is |v|)
+            tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
+            concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
 
             self.inv_proj = torch.nn.Sequential(
                 torch.nn.Linear(concat_dim, 128),
