@@ -112,6 +112,32 @@ class NonLinearReadoutBlock(torch.nn.Module):
                 x = mask_head(x, heads, self.num_heads)
         return self.linear_2(x)  # [n_nodes, len(heads)]
 
+class ScalarTransformerHead(torch.nn.Module):
+    def __init__(self, d_model: int, num_heads: int, mlp_width: int):
+        super().__init__()
+        self.ln = torch.nn.LayerNorm(d_model)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+        )
+        self.attn = torch.nn.MultiheadAttention(
+            d_model, num_heads=num_heads, dropout=0.05, batch_first=True
+        )
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(d_model, mlp_width),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+            torch.nn.Linear(mlp_width, 1),
+        )
+    def forward(self, X):                 # X: [B, T, d_model], scalars only
+        H = self.ln(X)
+        H = self.mapper(H)
+        A, _ = self.attn(H, H, H)
+        H = H + A
+        H = H.mean(dim=1)                 # token pooling
+        return self.fc(H).squeeze(-1)
+
 
 @simplify_if_compile
 @compile_mode("script")
@@ -1387,12 +1413,10 @@ class InvariantizeL0fromL1(torch.nn.Module):
             shared_weights=True,
             internal_weights=True,
             normalization="component",
-)
+        )
 
     def forward(self, x):  # x: IrrepsArray with shape [B, T, C]
-        tp = []
         tp0 = self.tp(x, x)     # IrrepsArray (only 0e by construction)
-        # tp = [tp0.tensor]       # [B, T, n_tp]
         return tp0
 
 @compile_mode("script")
@@ -1409,7 +1433,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         # 2) Scalar-only stack
         # self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
 
-        self.mapper = torch.nn.Sequential(
+        self.mapper = torch.nn.Sequential( #Gradient dies here
             torch.nn.Linear(128, 128),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),

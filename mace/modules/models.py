@@ -32,6 +32,7 @@ from .blocks import (
     RadialEmbeddingBlock,
     ScaleShiftBlock,
     TransformerGraphReadoutBlock,
+    ScalarTransformerHead
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -1241,17 +1242,59 @@ class CouplingClassifier(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
+                irreps_by_layer.append(hidden_irreps_out)
             
-            final_irreps = o3.Irreps("16x0e + 16x1o") # This is the final irreps for the transformer readout
-            
-            self.readouts.append(
-                LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
-            ) # This will pool the final node features to a single vector for the transformer readout
+            # final_irreps = o3.Irreps("16x0e + 16x1o") # This is the final irreps for the transformer readout
+            # logging.info(f"hidden_irreps: {hidden_irreps}")
+            # logging.info(f"irreaps by layer final: {irreps_by_layer[-1]}")
+            # self.readouts.append(
+            #     LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
+            # ) # This will pool the final node features to a single vector for the transformer readout
 
-            self.readouts.append(TransformerGraphReadoutBlock(
-                final_irreps, MLP_irreps=MLP_irreps
-            ))
- 
+            # self.readouts.append(TransformerGraphReadoutBlock(
+            #     final_irreps, MLP_irreps=MLP_irreps
+            # ))
+            # keep this — vectors are 1o (not 1e)
+            final_irreps = o3.Irreps("16x0e + 16x1o")
+            self.final_irreps = final_irreps  # store for later use
+            self.readouts.append(  # per-node mixed irreps
+                LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
+            )
+
+            # ---- NEW: per-node invariantizer pieces ----
+            # all pairs of 1o blocks: 1o ⊗ 1o → 0e basically turns vectors into scalars
+            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1]
+            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs]
+
+            self.tp11 = o3.TensorProduct(
+                final_irreps, final_irreps,
+                irreps_out=o3.Irreps("1x0e"),   # a small learned scalar from 1o⊗1o
+                instructions=instr,
+                internal_weights=True,
+                shared_weights=True,
+                normalization="component",
+            )
+
+            self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
+
+            # sizes for projector: [scalar_pass_through | norms | tp11]
+            n0 = sum(m for m, ir in final_irreps if ir.l == 0)   # total scalar channels
+            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32
+            tp_dim     = self.tp11.irreps_out.dim                             # 1
+            concat_dim = n0 + norms_dim + tp_dim                                # 16 + 32 + 1 = 49 
+
+            self.inv_proj = torch.nn.Sequential(
+                torch.nn.Linear(concat_dim, 128),
+                torch.nn.GELU(),
+                torch.nn.Linear(128, 128),
+            )
+
+            # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
+            self.scalar_head = ScalarTransformerHead(
+                d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            )
+
+            
 
     def forward(
         self,
@@ -1312,23 +1355,54 @@ class CouplingClassifier(torch.nn.Module):
             )
             node_outs_total.append(node_feats)
 
-        logging.info(f'last node outs total shape {node_outs_total[-1].shape}')
-        node_out = self.readouts[0](node_outs_total[-1])
-        logging.info('node outs shape:')
-        logging.info(node_out.shape)
-        # Transform read
-        # last_node_out = node_outs_total[-1]
-        logging.info('node outs:')
-        logging.info(node_out.flatten())
+        # logging.info(f'last node outs total shape {node_outs_total[-1].shape}')
+        # node_out = self.readouts[0](node_outs_total[-1])
+        # logging.info('node outs shape:')
+        # logging.info(node_out.shape)
+        # # Transform read
+        # # last_node_out = node_outs_total[-1]
+        # logging.info('node outs:')
+        # logging.info(node_out.flatten())
+
+        # --- in forward, replace your pooling block ---
+
+        node_mixed = self.readouts[0](node_outs_total[-1])   # [N, C], irreps = 16x0e + 16x1o
+
+        # (a) pass-through 0e blocks
+        sl = self.final_irreps.slices()
+        s0_parts = [node_mixed[..., sl_i] for (sl_i, (mul, ir)) in zip(sl, self.final_irreps) if ir.l == 0]
+        s0 = torch.cat(s0_parts, dim=-1) if s0_parts else node_mixed.new_zeros(node_mixed.shape[:-1] + (0,))
+
+        # (b) per-block norms (for 1o these are |v|)
+        nrm = self.block_norm(node_mixed)  # [N, n_blocks]
+
+        # (c) learned quadratic invariants from 1o⊗1o→0e
+        tp0 = self.tp11(node_mixed, node_mixed)  # [N, 1]
+
+        # project to 128-d per node (all scalars)
+        inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
+        h_node   = self.inv_proj(inv_node)            # [N, 128]
+
+        # pool (no cancellation; still invariant)
+        B = num_graphs
+        H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
+        H_mean = scatter_mean(h_node, data['batch'], dim=0, dim_size=B)
+        # optional std (compute stably, no in-place)
+        h2m    = scatter_mean(h_node*h_node, data['batch'], dim=0, dim_size=B)
+        var    = (h2m - H_mean*H_mean).clamp_min(1e-12)
+        H_std  = var.sqrt()
+
+        X = torch.stack([H_sum, H_mean, H_std], dim=1).to(next(self.parameters()).dtype)  # [B,3,128]
+        graph_logits = self.scalar_head(X)  # [B]
 
         #-------
 
-        inter_e = scatter_mean(
-            src= node_out,
-            index=data['batch'], #.unsqueeze(-1), 
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
+        # inter_e = scatter_mean(
+        #     src= node_out,
+        #     index=data['batch'], #.unsqueeze(-1), 
+        #     dim=0,
+        #     dim_size=num_graphs,
+        # )  # [n_graphs,16]
         # inter_std = scatter_std(
         #     src=node_out,
         #     index=data['batch'], #.unsqueeze(-1), 
@@ -1351,22 +1425,31 @@ class CouplingClassifier(torch.nn.Module):
         # inter_e = inter_e[:, :, None]
         # inter_std = inter_std[:, :, None]
         # inter_sum = inter_sum[:, :, None] # [n_graphs,16, 1]
-      
-        inter_e = inter_e[:, None, :]
+        # --------
+        # X_sum  = scatter_sum(node_out,  data['batch'], dim=0, dim_size=num_graphs)
+        # X_mean = scatter_mean(node_out, data['batch'], dim=0, dim_size=num_graphs)
+        # X_std = scatter_std(node_out, data['batch'], dim=0, dim_size=num_graphs)
+        # X_std = X_std.clone()
+        # X_std.nan_to_num_(0.0)        
+        # X = torch.stack([X_sum, X_mean, X_std], dim=1)           # [B, 3, C]
+        # X = X.to(next(self.parameters()).dtype)
+        # graph_logits = self.readouts[-1](X)
+        #
+        # inter_e = inter_e[:, None, :]
         # inter_std = inter_std[:, None, :]
         # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
 
 
-        logging.info('inter_e out extend shape:')
-        logging.info(inter_e.shape)
+        # logging.info('inter_e out extend shape:')
+        # logging.info(inter_e.shape)
 
-        # inter_e =  o3.IrrepsArray(inter_e, X) 
+        # # inter_e =  o3.IrrepsArray(inter_e, X) 
 
-        # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
-        graph_logits = self.readouts[-1](inter_e)#.squeeze(-1) # [n_graphs, 128]
+        # # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
+        # graph_logits = self.readouts[-1](inter_e)#.squeeze(-1) # [n_graphs, 128]
 
-        logging.info('scatter out extend shape:')
-        logging.info(graph_logits.shape)
+        # logging.info('scatter out extend shape:')
+        # logging.info(graph_logits.shape)
 
 
         output = {
