@@ -152,6 +152,23 @@ def weighted_classifier_loss(
     # If your training loop expects reduce_loss(...), keep this call; otherwise just `return loss`.
     return loss
 
+def gated_regression_l1(ref, pred, ddp=None, beta_scale=1.0):
+    # ŷ, y: [B] or [B,1] — make shapes match
+    yhat = pred["effective_coupling"]
+    y    = ref.effective_coupling.to(yhat.device, yhat.dtype).reshape_as(yhat)
+
+    # mask positives (labels must be 0/1 floats or bools)
+    pos = ref.coupling_class.to(dtype=torch.bool).reshape_as(yhat)
+    beta_scale = beta_scale
+    z_pred = beta_scale * torch.nn.functional.softplus(yhat)  # ensure positivity of predictions
+    if pos.any():
+        loss = torch.nn.functional.l1_loss(z_pred[pos], y[pos])
+    else:
+        # keep graph alive even if no positives in this batch
+        loss = (z_pred * 0).sum()
+
+    return reduce_loss(loss, ddp)
+
 # ------------------------------------------------------------------------------
 # Graph-level Loss Functions
 # ------------------------------------------------------------------------------
@@ -715,30 +732,28 @@ class EffectiveCouplingLoss(torch.nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f})"
     
+# loss.py (or wherever you define your combined loss)
 class GatedEffectiveCouplingLoss(torch.nn.Module):
-    def __init__(self, energy_weight=1.0, classifier_weight=1.0) -> None:
+    def __init__(self, beta_scale: float = 1.0,
+                 energy_weight: float = 1.0,
+                 classifier_weight: float = 1.0,
+                 neg_z_penalty: float = 1e-3):
         super().__init__()
-        self.register_buffer(
-            "energy_weight",
-            torch.tensor(energy_weight, dtype=torch.get_default_dtype())
-        )
-        self.register_buffer(
-            "classifier_weight",
-            torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
-        )
-    
-    def forward(
-        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
-    ) -> torch.Tensor:
-        loss_classifier = weighted_classifier_loss(ref, pred, ddp)
-        loss_effective_coupling = weighted_graph_absolute_loss(ref, pred, ddp)
+        self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
+        self.energy_weight = torch.tensor(energy_weight, dtype=torch.get_default_dtype())
+        self.classifier_weight = torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
+        self.neg_z_penalty = neg_z_penalty
 
-        return (self.energy_weight * loss_effective_coupling
-             + self.classifier_weight + loss_classifier)
-    
+    def forward(self, ref, pred, ddp=None) -> torch.Tensor:
+        # --- classifier ---
+        loss_classifier = weighted_classifier_loss(ref, pred, ddp)
+        # --- regression ---
+        loss_regressor = gated_regression_l1(ref, pred, ddp, self.beta_scale)
+
+        return self.energy_weight * loss_regressor + self.classifier_weight * loss_classifier
+
     def __repr__(self):
-        return (
-            f"{self.__class__.__name__}("
-            f"classifier_weight={self.classifier_weight:.3f}, "
-            f"coupling_weight={self.coupling_weight:.3f})"
-        )
+        return (f"{self.__class__.__name__}(beta_scale={self.beta_scale:.3f}, "
+                f"energy_weight={self.energy_weight:.3f}, "
+                f"classifier_weight={self.classifier_weight:.3f}, "
+                f"neg_z_penalty={self.neg_z_penalty:.3e})")

@@ -9,6 +9,7 @@ import torch
 import torch.distributed
 from torchmetrics import Metric
 
+
 plt.rcParams.update({"font.size": 8})
 mpl_logger = logging.getLogger("matplotlib")
 mpl_logger.setLevel(logging.WARNING)  # Only show WARNING and above
@@ -108,6 +109,20 @@ error_type = {
         [
             ("coupling_class", "Coupling Class"),
 
+        ]
+    ),
+    "GatedEffectiveCouplingLoss": (
+        [
+            ("accuracy", "Accuracy of Classifier [%]"),
+            ("mae_graph_wide_coupling","MAE Graph Wide Coupling [meV]"),
+            ("rmse_graph_wide_coupling","RMSE Graph Wide Coupling [meV]")
+        ],
+        # [
+        #     ("coupling_class", "Coupling Class"),
+
+        # ],
+        [
+            ("effective_coupling","Effective Coupling")
         ]
     )
 
@@ -634,7 +649,10 @@ class InferenceMetric(Metric):
         if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
             self.n_couplings += 1.0
             self.ref_effective_coupling.append(batch.effective_coupling)
-            self.pred_effective_coupling.append(output["effective_coupling"])
+            z = output["effective_coupling"]
+            beta_scale = 1.0
+            y_pred = (beta_scale * torch.expm1(z)).clamp_min(0)
+            self.pred_effective_coupling.append(y_pred)
 
 
     def _process_data(self, ref_list, pred_list):

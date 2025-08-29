@@ -32,7 +32,8 @@ from .blocks import (
     RadialEmbeddingBlock,
     ScaleShiftBlock,
     TransformerGraphReadoutBlock,
-    ScalarTransformerHead
+    ScalarTransformerHead,
+    SimpleFeedForwardHead
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -1201,9 +1202,6 @@ class CouplingClassifier(torch.nn.Module):
 
             self.readouts = torch.nn.ModuleList()
 
-            # self.readouts.append(
-            #     LinearReadoutBlock(hidden_irreps)
-            # )
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1211,14 +1209,7 @@ class CouplingClassifier(torch.nn.Module):
             logging.info(f"number of interactions: {num_interactions}")
 
             for i in range(num_interactions - 1):
-                # if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
-                #     assert (
-                #         len(hidden_irreps) > 1
-                #     ), "To predict classifiers use at least l=1 hidden_irreps"
-                #     hidden_irreps_out = str(
-                #         hidden_irreps[:2]
-                #     ) #select only scalars for last layer
-                # else:
+
                 hidden_irreps_out = hidden_irreps
                 
                 irreps_by_layer.append(hidden_irreps_out)
@@ -1244,18 +1235,8 @@ class CouplingClassifier(torch.nn.Module):
                 self.products.append(prod)
                 irreps_by_layer.append(hidden_irreps_out)
             
-            # final_irreps = o3.Irreps("16x0e + 16x1o") # This is the final irreps for the transformer readout
-            # logging.info(f"hidden_irreps: {hidden_irreps}")
-            # logging.info(f"irreaps by layer final: {irreps_by_layer[-1]}")
-            # self.readouts.append(
-            #     LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
-            # ) # This will pool the final node features to a single vector for the transformer readout
-
-            # self.readouts.append(TransformerGraphReadoutBlock(
-            #     final_irreps, MLP_irreps=MLP_irreps
-            # ))
+            final_irreps = irreps_by_layer[-1]
             # keep this — vectors are 1o (not 1e)
-            final_irreps = o3.Irreps("16x0e + 16x1o")
             self.final_irreps = final_irreps  # store for later use
             self.readouts.append(  # per-node mixed irreps
                 LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
@@ -1283,17 +1264,22 @@ class CouplingClassifier(torch.nn.Module):
             tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
             concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
 
+            MID_DIM = 64
+            # project to 64-d per node (all scalars)
+
             self.inv_proj = torch.nn.Sequential(
-                torch.nn.Linear(concat_dim, 128),
+                torch.nn.Linear(concat_dim, MID_DIM),
                 torch.nn.GELU(),
-                torch.nn.Linear(128, 128),
+                torch.nn.Linear(MID_DIM, MID_DIM),
             )
 
             # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
-            self.scalar_head = ScalarTransformerHead(
-                d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            # self.scalar_head = ScalarTransformerHead(
+            #     d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            # )
+            self.simple_head = SimpleFeedForwardHead(
+                d_model=MID_DIM #, mlp_width=MLP_irreps.num_irreps, out_dim=1
             )
-
             
 
     def forward(
@@ -1355,15 +1341,6 @@ class CouplingClassifier(torch.nn.Module):
             )
             node_outs_total.append(node_feats)
 
-        # logging.info(f'last node outs total shape {node_outs_total[-1].shape}')
-        # node_out = self.readouts[0](node_outs_total[-1])
-        # logging.info('node outs shape:')
-        # logging.info(node_out.shape)
-        # # Transform read
-        # # last_node_out = node_outs_total[-1]
-        # logging.info('node outs:')
-        # logging.info(node_out.flatten())
-
         # --- in forward, replace your pooling block ---
 
         node_mixed = self.readouts[0](node_outs_total[-1])   # [N, C], irreps = 16x0e + 16x1o
@@ -1386,71 +1363,8 @@ class CouplingClassifier(torch.nn.Module):
         # pool (no cancellation; still invariant)
         B = num_graphs
         H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
-        H_mean = scatter_mean(h_node, data['batch'], dim=0, dim_size=B)
-        # optional std (compute stably, no in-place)
-        h2m    = scatter_mean(h_node*h_node, data['batch'], dim=0, dim_size=B)
-        var    = (h2m - H_mean*H_mean).clamp_min(1e-12)
-        H_std  = var.sqrt()
 
-        X = torch.stack([H_sum, H_mean, H_std], dim=1).to(next(self.parameters()).dtype)  # [B,3,128]
-        graph_logits = self.scalar_head(X)  # [B]
-
-        #-------
-
-        # inter_e = scatter_mean(
-        #     src= node_out,
-        #     index=data['batch'], #.unsqueeze(-1), 
-        #     dim=0,
-        #     dim_size=num_graphs,
-        # )  # [n_graphs,16]
-        # inter_std = scatter_std(
-        #     src=node_out,
-        #     index=data['batch'], #.unsqueeze(-1), 
-        #     dim=0,
-        #     dim_size=num_graphs,
-        # )  # [n_graphs,16]
-        # inter_sum = scatter_sum(
-        #     src=node_out,
-        #     index=data['batch'], #.unsqueeze(-1), 
-        #     dim=0,
-        #     dim_size=num_graphs,
-        # )  # [n_graphs,16]
-        #-------
-
-        # # Store for later inspection after backward
-        # self._debug_inter_e = inter_e #.detach().cpu()
-        # self._debug_inter_std = inter_std.detach().cpu()
-        # self._debug_inter_sum = inter_sum.detach().cpu()
-
-        # inter_e = inter_e[:, :, None]
-        # inter_std = inter_std[:, :, None]
-        # inter_sum = inter_sum[:, :, None] # [n_graphs,16, 1]
-        # --------
-        # X_sum  = scatter_sum(node_out,  data['batch'], dim=0, dim_size=num_graphs)
-        # X_mean = scatter_mean(node_out, data['batch'], dim=0, dim_size=num_graphs)
-        # X_std = scatter_std(node_out, data['batch'], dim=0, dim_size=num_graphs)
-        # X_std = X_std.clone()
-        # X_std.nan_to_num_(0.0)        
-        # X = torch.stack([X_sum, X_mean, X_std], dim=1)           # [B, 3, C]
-        # X = X.to(next(self.parameters()).dtype)
-        # graph_logits = self.readouts[-1](X)
-        #
-        # inter_e = inter_e[:, None, :]
-        # inter_std = inter_std[:, None, :]
-        # inter_sum = inter_sum[:, None, :] # [n_graphs,1,16]
-
-
-        # logging.info('inter_e out extend shape:')
-        # logging.info(inter_e.shape)
-
-        # # inter_e =  o3.IrrepsArray(inter_e, X) 
-
-        # # graph_logits = self.readouts[-1]((inter_e, inter_std, inter_sum))
-        # graph_logits = self.readouts[-1](inter_e)#.squeeze(-1) # [n_graphs, 128]
-
-        # logging.info('scatter out extend shape:')
-        # logging.info(graph_logits.shape)
-
+        graph_logits = self.simple_head(H_sum).squeeze(-1)  # [B]
 
         output = {
         "coupling_class": graph_logits  # [n_nodes, n_classes]
@@ -1575,7 +1489,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.products = torch.nn.ModuleList([prod])
 
-            self.pool_norm = torch.nn.LayerNorm(3)
+            self.pool_norm = torch.nn.LayerNorm(64)
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1583,15 +1497,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             logging.info(f"number of interactions: {num_interactions}")
 
             for i in range(num_interactions - 1):
-                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
-                    assert (
-                        len(hidden_irreps) > 1
-                    ), "To predict classifiers use at least l=1 hidden_irreps"
-                    hidden_irreps_out = str(
-                        hidden_irreps[0]
-                    ) #select only scalars for last layer
-                else:
-                    hidden_irreps_out = hidden_irreps
+
+                hidden_irreps_out = hidden_irreps
                 
                 irreps_by_layer.append(hidden_irreps_out)
 
@@ -1614,14 +1521,69 @@ class GatedCouplingPredictor(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
-      
-            msg = f"irreps by layer: {irreps_by_layer}" 
-            logging.info(msg)
-            self.classifier  = torch.nn.Linear(final_irreps.dim, 1)
+                irreps_by_layer.append(hidden_irreps_out)
+            
             final_irreps = irreps_by_layer[-1]
-            self.readouts.append(TransformerGraphReadoutBlock(
-                final_irreps, MLP_irreps = MLP_irreps
-            ))  
+            # keep this — vectors are 1o (not 1e)
+            self.final_irreps = final_irreps  # store for later use
+            self.readouts.append(  # per-node mixed irreps
+                LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
+            )
+
+            # ---- NEW: per-node invariantizer pieces ----
+            # all pairs of 1o blocks: 1o ⊗ 1o → 0e basically turns vectors into scalars
+            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1] 
+            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs] #index pairs of 1o irreps
+
+            self.tp11 = o3.TensorProduct(
+                final_irreps, final_irreps,
+                irreps_out=o3.Irreps("1x0e"),   # a small learned scalar from 1o⊗1o which is the outer product of two vectors, where the scalar component is the trace of the outer product matrix
+                instructions=instr,
+                internal_weights=True,
+                shared_weights=True,
+                normalization="component",
+            )
+
+            self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
+
+            # sizes for projector: [scalar_pass_through | norms | tp11]
+            n0 = sum(m for m, ir in final_irreps if ir.l == 0)   # total scalar channels
+            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32, where we norm both 0e and 1o blocks (norm of 0e is abs, norm of 1o is |v|)
+            tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
+            concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
+
+            MID_DIM = 64
+            # project to 64-d per node (all scalars)
+
+            self.inv_proj = torch.nn.Sequential(
+                torch.nn.Linear(concat_dim, MID_DIM),
+                torch.nn.GELU(),
+                torch.nn.Linear(MID_DIM, MID_DIM),
+            )
+
+            self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
+            self.pool_gate = torch.nn.Sequential(
+                torch.nn.Linear(MID_DIM, MID_DIM // 4),
+                torch.nn.GELU(),
+                torch.nn.Linear(MID_DIM // 4, 1),
+            )
+
+            self.pool_norm = torch.nn.LayerNorm(MID_DIM)
+            with torch.no_grad():
+                if getattr(self.pool_gate[-1], "bias", None) is not None:
+                    self.pool_gate[-1].bias.fill_(0.0)
+
+            # keep dtypes consistent
+            # self.float()
+            # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
+            # self.scalar_head = ScalarTransformerHead(
+            #     d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            # )
+            # ---- NEW: simple feedforward head ---
+            self.simple_head = SimpleFeedForwardHead(
+                d_model=MID_DIM #, mlp_width=MLP_irreps.num_irreps, out_dim=1
+            )
+            
 
     def forward(
         self,
@@ -1658,7 +1620,7 @@ class GatedCouplingPredictor(torch.nn.Module):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
 
-        node_feats_total = []
+        node_outs_total = []
         for interaction, product in zip(
             self.interactions, self.products
         ):
@@ -1676,38 +1638,40 @@ class GatedCouplingPredictor(torch.nn.Module):
                 node_attrs=data["node_attrs"],
             )
             # node_out = readout(node_feats).squeeze(-1)
-            node_feats_total.append(node_feats)
+            node_outs_total.append(node_feats)
         
 
-        node_out = node_feats_total[0]
+        node_mixed = self.readouts[0](node_outs_total[-1])   # [N, C], irreps = 16x0e + 16x1o
 
-        inter_e = scatter_mean(
-            src= node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
-        inter_std = scatter_std(
-            src=node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
-        inter_sum = scatter_sum(
-            src=node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
+        # (a) pass-through 0e blocks
+        sl = self.final_irreps.slices()
+        s0_parts = [node_mixed[..., sl_i] for (sl_i, (mul, ir)) in zip(sl, self.final_irreps) if ir.l == 0]
+        s0 = torch.cat(s0_parts, dim=-1) if s0_parts else node_mixed.new_zeros(node_mixed.shape[:-1] + (0,))
 
-        inter_e = inter_e[:, :, None]
-        inter_std = inter_std[:, :, None]
-        inter_sum = inter_sum[:, :, None]
-        
+        # (b) per-block norms (for 1o these are |v|)
+        nrm = self.block_norm(node_mixed)  # [N, n_blocks]
+
+        # (c) learned quadratic invariants from 1o⊗1o→0e
+        tp0 = self.tp11(node_mixed, node_mixed)  # [N, 1]
+
+        # project to 128-d per node (all scalars)
+        inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
+        h_node   = self.inv_proj(inv_node)            # [N, 128]
+
+        # pool (no cancellation; still invariant)
+        B = num_graphs
+
+        gate   = torch.sigmoid(self.pool_gate(h_node))     # [N,1]
+        gated  = gate * h_node                              # [N,D]
+        sum_   = scatter_sum(gated, data['batch'], dim=0, dim_size=B)  # [B,D]
+        cnt    = torch.bincount(data['batch'], minlength=B).float().unsqueeze(1)
+        pooled = self.pool_norm(sum_ / cnt.clamp_min(1.0).sqrt())  # [B,D]
+
+        graph_logits = self.simple_head(pooled).squeeze(-1)  # [B]
+
         coupling_prob = self.classifier(
-            self.pool_norm(torch.cat([inter_e, inter_std, inter_sum], dim=2))
-        )
-        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+            pooled
+        ).squeeze(-1)
 
         output = {
             "coupling_class": coupling_prob,  # [n_nodes, n_classes]

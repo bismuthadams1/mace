@@ -728,16 +728,15 @@ class MACELoss(Metric):
                 logging.info(neg_logits)
             
 
-        # here we use the whole energy of the molecule/dimer as a proxy for effective coupling
         if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
-            logging.info("getting effective coupling output")
-            effective_coupling = output["effective_coupling"]
-            logging.info(f"effective coupling predicted: {effective_coupling}")
-            logging.info(f"effective coupling supplied {batch.effective_coupling}")
+            z = output["effective_coupling"]
+            beta = getattr(self.loss_fn, "beta_scale", torch.tensor(1.0, dtype=z.dtype)).to(z.device)
+            # y_pred = (beta * torch.expm1(z)).clamp_min(0)   # non-negative for logging/metrics
+            y_pred_linear = beta * torch.nn.functional.softplus(z)  # non-negative for logging/metrics
+            logging.info("effective coupling predicted (linear): %s", y_pred_linear)
+            logging.info("effective coupling reference         : %s", batch.effective_coupling)
             self.E_graph_computed += 1.0
-            self.delta_graph_es.append(
-                (batch.effective_coupling - effective_coupling)
-            )
+            self.delta_graph_es.append(batch.effective_coupling - y_pred_linear)
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:

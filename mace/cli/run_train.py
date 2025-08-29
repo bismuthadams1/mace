@@ -493,8 +493,8 @@ def run(args) -> None:
         args.compute_forces = False
         args.compute_virials = False
         args.compute_stress = False
-        args.loss = ""
-        args.error_table = ""
+        args.loss = "gated_effective_coupling_loss"
+        args.error_table = "GatedEffectiveCouplingLoss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":

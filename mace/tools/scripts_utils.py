@@ -638,6 +638,12 @@ def get_loss_fn(
         loss_fn = modules.EffectiveCouplingLoss(
             energy_weight=args.energy_weight, 
         )
+    elif args.loss =="gated_effective_coupling_loss":
+        loss_fn = modules.GatedEffectiveCouplingLoss(
+            energy_weight=args.energy_weight, 
+            classifier_weight=args.classifier_weight,
+        )
+
     else:
         loss_fn = modules.WeightedEnergyForcesLoss(energy_weight=1.0, forces_weight=1.0)
     return loss_fn

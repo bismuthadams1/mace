@@ -112,6 +112,7 @@ class NonLinearReadoutBlock(torch.nn.Module):
                 x = mask_head(x, heads, self.num_heads)
         return self.linear_2(x)  # [n_nodes, len(heads)]
 
+@compile_mode("script")
 class ScalarTransformerHead(torch.nn.Module):
     def __init__(self, d_model: int, num_heads: int, mlp_width: int):
         super().__init__()
@@ -137,6 +138,27 @@ class ScalarTransformerHead(torch.nn.Module):
         H = H + A
         H = H.mean(dim=1)                 # token pooling
         return self.fc(H).squeeze(-1)
+
+
+@compile_mode("script")
+class SimpleFeedForwardHead(torch.nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.ln = torch.nn.LayerNorm(d_model)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+            torch.nn.Linear(d_model, 1),
+        )
+
+    def forward(self, X):                 # X: [B, T, d_model], scalars only
+        H = self.ln(X)
+        H = self.mapper(H)
+
+        # H = H.mean(dim=1)                 # token pooling
+        return H
+
 
 
 @simplify_if_compile
