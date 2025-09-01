@@ -142,6 +142,7 @@ class TrainingPlotter:
         plot_frequency: int,
         distributed: bool = False,
         swa_start: Optional[int] = None,
+        loss_fn = None, 
     ):
         self.results_dir = results_dir
         self.heads = heads
@@ -153,6 +154,7 @@ class TrainingPlotter:
         self.plot_frequency = plot_frequency
         self.distributed = distributed
         self.swa_start = swa_start
+        self.loss_fn = loss_fn
 
     def plot(self, model_epoch: str, model: torch.nn.Module, rank: int) -> None:
 
@@ -163,9 +165,10 @@ class TrainingPlotter:
             self.output_args,
             self.device,
             self.distributed,
+            self.loss_fn,
         )
         test_dict = model_inference(
-            self.test_data, model, self.output_args, self.device, self.distributed
+            self.test_data, model, self.output_args, self.device, self.distributed, self.loss_fn,
         )
 
         # Only rank 0 creates and saves plots
@@ -505,6 +508,7 @@ def model_inference(
     output_args: Dict[str, bool],
     device: str,
     distributed: bool = False,
+    loss_fn = None,
 ):
 
     for param in model.parameters():
@@ -515,7 +519,7 @@ def model_inference(
     for name in all_data_loaders:
         data_loader = all_data_loaders[name]
         logging.debug(f"Running inference on {name} dataset")
-        scatter_metric = InferenceMetric().to(device)
+        scatter_metric = InferenceMetric(loss_fn).to(device)
 
         for batch in data_loader:
             batch = batch.to(device)
@@ -552,7 +556,7 @@ def to_numpy(tensor: torch.Tensor) -> np.ndarray:
 class InferenceMetric(Metric):
     """Metric class for collecting reference and predicted values for scatterplot visualization."""
 
-    def __init__(self):
+    def __init__(self, loss_fn):
         super().__init__()
         # Raw values
         self.add_state("ref_energies", default=[], dist_reduce_fx="cat")
@@ -592,6 +596,10 @@ class InferenceMetric(Metric):
 
         # Electronic coupling metrics
         self.add_state("coupling_accuracy", default = [], dist_reduce_fx="cat")
+
+        #Pass through the loss function
+        self.loss_fn = loss_fn
+
         # self.add_state("coupling predicted", default = [], dist_reduce_fx="cat")
 
     def update(self, batch, output):  # pylint: disable=arguments-differ
@@ -646,13 +654,28 @@ class InferenceMetric(Metric):
             self.ref_coupling_class.append(batch.coupling_class)
             self.pred_coupling_class.append(output["coupling_class"])
 
-        if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
+        if (
+            output.get("effective_coupling") is not None 
+            and batch.effective_coupling is not None 
+            and output.get("coupling_class") is not None
+        ):
             self.n_couplings += 1.0
-            self.ref_effective_coupling.append(batch.effective_coupling)
-            z = output["effective_coupling"]
-            beta_scale = 1.0
-            y_pred = (beta_scale * torch.expm1(z)).clamp_min(0)
-            self.pred_effective_coupling.append(y_pred)
+            ref = batch.effective_coupling
+
+            # same linearization everywhere
+            y_pred_linear = self.loss_fn.to_linear_space(output["effective_coupling"]).squeeze(-1)
+
+            logits = output["coupling_class"]
+            probs  = torch.sigmoid(logits).squeeze(-1)             # [B]
+            preds  = (probs > 0.5).to(y_pred_linear.dtype)         # [B]
+            y_pred_linear = y_pred_linear * preds                  # [B]
+
+            logging.info("ref (linear): %s", ref)
+            logging.info("pred (linear, gated): %s", y_pred_linear)
+
+            self.ref_effective_coupling.append(ref.reshape_as(y_pred_linear))
+            self.pred_effective_coupling.append(y_pred_linear)
+
 
 
     def _process_data(self, ref_list, pred_list):
@@ -740,8 +763,6 @@ class InferenceMetric(Metric):
                 "reference": ref_c,
                 "predicted": pred_c,
             }
-
-
         # Process n_couplings
         if self.n_couplings:
             ref_ec, pred_ec = self._process_data(self.ref_effective_coupling, self.pred_effective_coupling)
@@ -750,5 +771,7 @@ class InferenceMetric(Metric):
                 "reference": ref_ec,
                 "predicted": pred_ec
             }
+
+            logging.info(f"results of effective coupling : {results['effective_coupling']}")
 
         return results

@@ -728,15 +728,28 @@ class MACELoss(Metric):
                 logging.info(neg_logits)
             
 
-        if output.get("effective_coupling") is not None and batch.effective_coupling is not None:
-            z = output["effective_coupling"]
-            beta = getattr(self.loss_fn, "beta_scale", torch.tensor(1.0, dtype=z.dtype)).to(z.device)
-            # y_pred = (beta * torch.expm1(z)).clamp_min(0)   # non-negative for logging/metrics
-            y_pred_linear = beta * torch.nn.functional.softplus(z)  # non-negative for logging/metrics
+        if (
+            output.get("effective_coupling") is not None 
+            and batch.effective_coupling is not None 
+            and output.get("coupling_class") is not None
+        ):
+            y_pred_linear = self.loss_fn.to_linear_space(output["effective_coupling"]).squeeze(-1)  # [B]
+
+            logits = output["coupling_class"]
+            probs  = torch.sigmoid(logits).squeeze(-1)             # [B]
+            # preds  = (probs > 0.5).to(y_pred_linear.dtype)         # [B]
+            g_soft = torch.sigmoid(output["coupling_class"]).detach()  # [B,1] soft
+            y_lin_softgated = y_pred_linear * g_soft
+
+            y_pred_linear = y_pred_linear * preds                  # [B]
+
             logging.info("effective coupling predicted (linear): %s", y_pred_linear)
             logging.info("effective coupling reference         : %s", batch.effective_coupling)
+
             self.E_graph_computed += 1.0
-            self.delta_graph_es.append(batch.effective_coupling - y_pred_linear)
+            # ensure shapes match
+            ref = batch.effective_coupling.to(y_pred_linear.device, y_pred_linear.dtype).reshape_as(y_pred_linear)
+            self.delta_graph_es.append(ref - y_pred_linear)
 
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:

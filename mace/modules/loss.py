@@ -169,6 +169,40 @@ def gated_regression_l1(ref, pred, ddp=None, beta_scale=1.0):
 
     return reduce_loss(loss, ddp)
 
+def gated_regression_huber_log(ref, pred, ddp=None, delta=1.0):
+    z = pred["effective_coupling"]        # unconstrained
+    y = ref.effective_coupling.to(z.device, z.dtype).reshape_as(z)
+    t = torch.log1p(y)
+    pos = ref.coupling_class.to(torch.bool).reshape_as(z)
+
+    if pos.any():
+        loss = torch.nn.functional.huber_loss(z[pos], t[pos], delta=delta, reduction="mean")
+    else:
+        loss = (z * 0.0).sum()
+
+    return reduce_loss(loss, ddp)
+
+def loss_regressor_log_hard(ref, pred, beta, mu, sigma, delta=0.5):
+    # model outputs standardized ẑ; targets are y (linear)
+    zhat_all = pred["effective_coupling"]
+    y        = ref.effective_coupling.to(zhat_all).reshape_as(zhat_all)
+
+    pos = ref.coupling_class.to(torch.bool).reshape_as(zhat_all)
+    if not pos.any():
+        # keep graph alive but contribute ~0
+        return (zhat_all * 0).sum()
+
+    # standardize log1p targets
+    z = (torch.log1p(y[pos]/ beta) - mu) / sigma
+    zhat = zhat_all[pos]
+
+    # robust loss in z-space
+    err = torch.nn.functional.huber_loss(zhat, z, delta=delta, reduction="mean")
+
+    # re-balance: if only P of B are positive, scale by B/P
+    B = zhat_all.numel()
+    P = int(pos.sum())
+    return err * (B / max(P, 1))
 # ------------------------------------------------------------------------------
 # Graph-level Loss Functions
 # ------------------------------------------------------------------------------
@@ -734,26 +768,62 @@ class EffectiveCouplingLoss(torch.nn.Module):
     
 # loss.py (or wherever you define your combined loss)
 class GatedEffectiveCouplingLoss(torch.nn.Module):
-    def __init__(self, beta_scale: float = 1.0,
-                 energy_weight: float = 1.0,
-                 classifier_weight: float = 1.0,
-                 neg_z_penalty: float = 1e-3):
+    def __init__(self,
+                pos_weight,
+                beta_scale: float = 1.0,
+                energy_weight: float = 1.0,
+                classifier_weight: float = 1.0,
+                neg_z_penalty: float = 1e-3,
+                ):
         super().__init__()
-        self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
+        self.register_buffer( #parameters to be loaded into the state dict
+            "energy_weight",
+            torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
+        )
+        self.register_buffer(
+            "pos_weight", 
+            torch.tensor(pos_weight, dtype=torch.get_default_dtype()),
+        )
+        self.register_buffer("beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype()))
+        self.register_buffer("pos_weight_buf", torch.tensor(float(pos_weight), dtype=torch.get_default_dtype()))
+        # self.register_buffer("beta", torch.tensor(1.0))
+        self.register_buffer("mu",   torch.tensor(0.0)) 
+        self.register_buffer("sigma",torch.tensor(1.0))
+        # self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
         self.energy_weight = torch.tensor(energy_weight, dtype=torch.get_default_dtype())
         self.classifier_weight = torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
         self.neg_z_penalty = neg_z_penalty
+ 
 
     def forward(self, ref, pred, ddp=None) -> torch.Tensor:
         # --- classifier ---
-        loss_classifier = weighted_classifier_loss(ref, pred, ddp)
+        loss_classifier = weighted_classifier_loss(ref= ref, pred = pred, ddp=ddp, pos_weight=self.pos_weight)
         # --- regression ---
-        loss_regressor = gated_regression_l1(ref, pred, ddp, self.beta_scale)
+        loss_regressor = loss_regressor_log_hard(
+            ref = ref,
+            pred =pred,
+            beta = self.beta,
+            mu = self.mu,
+            sigma= self.sigma
+        )
+        logging.info(f'loss regressor {loss_regressor}')
 
         return self.energy_weight * loss_regressor + self.classifier_weight * loss_classifier
+    
+    def update_log_space(self, beta=None, mu=None, sigma=None):
+        if beta is not None:  self.beta.fill_(float(beta))
+        if mu   is not None:  self.mu.fill_(float(mu))
+        if sigma is not None: self.sigma.fill_(float(sigma))
 
-    def __repr__(self):
-        return (f"{self.__class__.__name__}(beta_scale={self.beta_scale:.3f}, "
-                f"energy_weight={self.energy_weight:.3f}, "
-                f"classifier_weight={self.classifier_weight:.3f}, "
-                f"neg_z_penalty={self.neg_z_penalty:.3e})")
+    def set_pos_weight(self, pos_weight: float):
+        self.pos_weight_buf.fill_(float(pos_weight))
+
+    def to_linear_space(self, t_hat):
+        return self.beta * (torch.expm1(self.sigma * t_hat + self.mu))
+
+    def __repr__(self):  #printable representation of an object
+        return (f"{self.__class__.__name__}("
+                f"pos_weight={self.pos_weight.item():.3f}, "
+                f"beta={self.beta.item():.3f}, mu={self.mu.item():.3f}, sigma={self.sigma.item():.3f}, "
+                f"coupling_weight={self.energy_weight:.3f}, "
+                f"classifier_weight={self.classifier_weight:.3f})")
