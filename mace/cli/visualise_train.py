@@ -171,6 +171,19 @@ class TrainingPlotter:
             self.test_data, model, self.output_args, self.device, self.distributed, self.loss_fn,
         )
 
+        #MONITORING-----
+        import json
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super().default(obj)
+        with open(f'epoch_{model_epoch}_test.json','w+') as file:
+            json.dump(test_dict, fp=file, cls=NumpyEncoder)
+        with open(f'epoch_{model_epoch}_train.json','w+') as file:
+            json.dump(train_valid_dict, fp=file, cls=NumpyEncoder)
+        #MONITORING------
+
         # Only rank 0 creates and saves plots
         if rank != 0:
             return
@@ -477,6 +490,15 @@ def plot_inference_from_results(
                     label="Test",
                 )
 
+            elif key == "effective_coupling" and "effective_coupling" in result:
+                scatter = ax.scatter(
+                    result["effective_coupling"]["reference"],
+                    result["effective_coupling"]["predicted"],
+                    marker=marker,
+                    color=fixed_color_train_valid,
+                    label=name,  
+                )
+
             # Only add to legend_labels if scatter was assigned
             if scatter is not None:
                 legend_labels["Test"] = scatter
@@ -676,6 +698,18 @@ class InferenceMetric(Metric):
             self.ref_effective_coupling.append(ref.reshape_as(y_pred_linear))
             self.pred_effective_coupling.append(y_pred_linear)
 
+        if (
+            output.get("effective_coupling") is not None 
+            and batch.effective_coupling is not None 
+        ):
+            self.n_couplings += 1.0
+            y_pred_linear = self.loss_fn.to_linear_space(output["effective_coupling"]).squeeze(-1)  # [B]
+            ref = batch.effective_coupling.to(y_pred_linear.device, y_pred_linear.dtype).reshape_as(y_pred_linear)
+            self.ref_effective_coupling.append(ref.reshape_as(y_pred_linear))
+            self.pred_effective_coupling.append(y_pred_linear)
+
+            logging.info("ref (linear): %s", ref)
+            logging.info("pred (linear, gated): %s", y_pred_linear)
 
 
     def _process_data(self, ref_list, pred_list):

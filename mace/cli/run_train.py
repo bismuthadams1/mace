@@ -714,33 +714,69 @@ def run(args) -> None:
         )
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
-    if args.model == 'GatedCouplingPredictor':
-        y_list, l_list = [], []
-        for d in train_set:  # <-- the actual train split you feed the loader
-            y_list.append(torch.as_tensor(d.effective_coupling, dtype=torch.get_default_dtype()))
-            l_list.append(torch.as_tensor(d.coupling_class,     dtype=torch.long))
+    #calculate the correct beta, mu, sigma values for the log space
+    if args.model == 'GatedCouplingPredictor' :
+        with torch.no_grad():
+            y_list, l_list = [], []
+            for d in train_set:  # <-- the actual train split you feed the loader
+                y_list.append(torch.as_tensor(d.effective_coupling, dtype=torch.get_default_dtype()))
+                l_list.append(torch.as_tensor(d.coupling_class,     dtype=torch.long))
 
-        y = torch.stack(y_list)                        # [N]
-        lab = torch.stack(l_list).bool()               # [N]
-        pos = y[lab]
-        logging.info(f"y pos {pos}")
-        # torch.save(pos, 'pos.pt')
-        # robust beta from positives; fall back to overall median if no positives
-        eps = torch.tensor(1e-8, dtype=y.dtype)
-        if pos.numel() > 0:
-            beta = pos.median().clamp_min(eps)
-        else:
-            beta = y.median().clamp_min(eps)
+            y = torch.stack(y_list)                        # [N]
+            lab = torch.stack(l_list).bool()               # [N]
+            pos = y[lab]
+            logging.info(f"y pos {pos}")
+            # torch.save(pos, 'pos.pt')
+            # robust beta from positives; fall back to overall median if no positives
+            eps = torch.tensor(1e-8, dtype=y.dtype)
+            if pos.numel() > 0:
+                beta = pos.median().clamp_min(eps)
+            else:
+                beta = y.median().clamp_min(eps)
 
-        # class weight for BCEWithLogits
-        n_pos = lab.sum()
-        n_neg = (~lab).sum()
-        pos_weight = (n_neg.to(y.dtype) / (n_pos.clamp_min(1))).item()
+            # class weight for BCEWithLogits
+            n_pos = lab.sum()
+            n_neg = (~lab).sum()
+            pos_weight = (n_neg.to(y.dtype) / (n_pos.clamp_min(1))).item()
+            # Log space parameters
+            z_raw = torch.log1p(y/beta)
+            mu    = z_raw.median()
+            mad   = (z_raw - mu).abs().median()
+            sigma = (mad / 0.6745).clamp_min(torch.tensor(1e-3, dtype =y.dtype))
+            logging.info(f'sigma {sigma}, mu {mu}, beta {beta}')
+            # wire into the loss
+            loss_fn.update_log_space(
+                beta=beta.item(),
+                mu = mu.item(),
+                sigma = sigma.item()
+            )        # make sure this calls self.beta.copy_(...)
+            loss_fn.set_pos_weight(pos_weight)                # optional helper; or pass pos_weight to your BCE
+    
+    if args.model == 'CouplingPredictor':
+        with torch.no_grad():
+            y_list = []
+            l_list = []
+            for d in train_set:
+                y_list.append(torch.as_tensor(d.effective_coupling, dtype=torch.get_default_dtype()))
+                l_list.append(torch.as_tensor(d.coupling_class,     dtype=torch.long))
 
-        logging.info(f"beta scale based on median {beta}")
-        # wire into the loss
-        loss_fn.update_log_space(beta=beta.item())        # make sure this calls self.beta.copy_(...)
-        loss_fn.set_pos_weight(pos_weight)                # optional helper; or pass pos_weight to your BCE
+            y = torch.stack(y_list)                        # [N]
+            lab = torch.stack(l_list).bool()               # [N]
+            pos = y[lab]
+            logging.info(f"y pos {pos}")
+            # robust beta from positives; fall back to overall median if no positives
+            eps = torch.tensor(1e-8, dtype=y.dtype)
+            if pos.numel() > 0:
+                beta = pos.median().clamp_min(eps)
+            else:
+                beta = y.median().clamp_min(eps)
+            z_raw = torch.log1p(y/beta)
+            mu    = z_raw.median()
+            mad   = (z_raw - mu).abs().median()
+            sigma = (mad / 0.6745).clamp_min(torch.tensor(1e-3, dtype =y.dtype))
+            logging.info(f'sigma {sigma}, mu {mu}, beta {beta}')
+            loss_fn.update_log_space(beta = beta.item(), mu = mu.item(), sigma = sigma.item())
+
 
     logging.info(f"data loader length: {len(train_loader)}")
     args.avg_num_neighbors = get_avg_num_neighbors(head_configs, args, train_loader, device)
@@ -1099,7 +1135,8 @@ def run(args) -> None:
                     device=device,
                     plot_frequency=args.plot_frequency,
                     distributed=args.distributed,
-                    swa_start=swa.start if swa else None
+                    swa_start=swa.start if swa else None,
+                    loss_fn=loss_fn
                 )
                 plotter.plot(epoch, model_to_evaluate, rank)
             except Exception as e:  # pylint: disable=W0718

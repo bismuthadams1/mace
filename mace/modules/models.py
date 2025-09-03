@@ -1803,16 +1803,17 @@ class CouplingPredictor(torch.nn.Module):
             logging.info(f"number of interactions: {num_interactions}")
 
             for i in range(num_interactions - 1):
-                if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
-                    assert (
-                        len(hidden_irreps) > 1
-                    ), "To predict classifiers use at least l=1 hidden_irreps"
-                    hidden_irreps_out = str(
-                        hidden_irreps[0]
-                    ) #select only scalars for last layer
-                else:
-                    hidden_irreps_out = hidden_irreps
-                
+                # if i == num_interactions - 2: #if i is the second to last interaction ensure that the hidden irreps are at least l=1
+                #     assert (
+                #         len(hidden_irreps) > 1
+                #     ), "To predict classifiers use at least l=1 hidden_irreps"
+                #     hidden_irreps_out = str(
+                #         hidden_irreps[0]
+                #     ) #select only scalars for last layer
+                # else:
+                #     hidden_irreps_out = hidden_irreps
+                hidden_irreps_out = hidden_irreps
+
                 irreps_by_layer.append(hidden_irreps_out)
 
                 inter = interaction_cls(
@@ -1834,101 +1835,141 @@ class CouplingPredictor(torch.nn.Module):
                     use_sc=True,
                 )
                 self.products.append(prod)
+                irreps_by_layer.append(hidden_irreps_out)
       
-            msg = f"irreps by layer: {irreps_by_layer}" 
-            logging.info(msg)
             final_irreps = irreps_by_layer[-1]
-            self.readouts.append(torch.nn.Linear(final_irreps.dim, 1))
-            # self.readouts.append(TransformerGraphReadoutBlock(
-            #     final_irreps, MLP_irreps = MLP_irreps
-            # ))  
+            self.final_irreps = final_irreps
+
+            self.readouts.append(  # per-node mixed irreps
+            LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
+            )
+
+            # ---- NEW: per-node invariantizer pieces ----
+            # all pairs of 1o blocks: 1o ⊗ 1o → 0e basically turns vectors into scalars
+            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1] 
+            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs] #index pairs of 1o irreps
+
+            self.tp11 = o3.TensorProduct(
+                final_irreps, final_irreps,
+                irreps_out=o3.Irreps("1x0e"),   # a small learned scalar from 1o⊗1o which is the outer product of two vectors, where the scalar component is the trace of the outer product matrix
+                instructions=instr,
+                internal_weights=True,
+                shared_weights=True,
+                normalization="component",
+            )
+
+            self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
+
+            # sizes for projector: [scalar_pass_through | norms | tp11]
+            n0 = sum(m for m, ir in final_irreps if ir.l == 0)   # total scalar channels
+            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32, where we norm both 0e and 1o blocks (norm of 0e is abs, norm of 1o is |v|)
+            tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
+            concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
+
+            MID_DIM = 64
+            # project to 64-d per node (all scalars)
+
+            self.inv_proj = torch.nn.Sequential(
+                torch.nn.Linear(concat_dim, MID_DIM),
+                torch.nn.GELU(),
+                torch.nn.Linear(MID_DIM, MID_DIM),
+            )
+
+            # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
+            # self.scalar_head = ScalarTransformerHead(
+            #     d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            # )
+            self.simple_head = SimpleFeedForwardHead(
+                d_model=MID_DIM #, mlp_width=MLP_irreps.num_irreps, out_dim=1
+            )
+            
 
     def forward(
-        self,
-        data: Dict[str, torch.Tensor],
-        training: bool = False,  # pylint: disable=W0613
-        compute_force: bool = False,
-        compute_virials: bool = False,
-        compute_stress: bool = False,
-        compute_displacement: bool = False,
-        compute_edge_forces: bool = False,  # pylint: disable=W0613
-        compute_atomic_stresses: bool = False,  # pylint: disable=W0613,
-        compute_coupling_class: bool = False,  # pylint: disable=W0613
-    ) -> Dict[str, Optional[torch.Tensor]]:
-        assert compute_force is False
-        assert compute_virials is False
-        assert compute_stress is False
-        assert compute_displacement is False
-        assert compute_coupling_class is False
+            self,
+            data: Dict[str, torch.Tensor],
+            training: bool = False,  # pylint: disable=W0613
+            compute_force: bool = False,
+            compute_virials: bool = False,
+            compute_stress: bool = False,
+            compute_displacement: bool = False,
+            compute_edge_forces: bool = False,  # pylint: disable=W0613
+            compute_atomic_stresses: bool = False,  # pylint: disable=W0613
+            compute_coupling_class: bool = True,  # pylint: disable=W0613
+        ) -> Dict[str, Optional[torch.Tensor]]:
+            assert compute_force is False
+            assert compute_virials is False
+            assert compute_stress is False
+            assert compute_displacement is False
+            assert compute_coupling_class is True
 
-        # Setup
-        data["node_attrs"].requires_grad_(True)
-        data["positions"].requires_grad_(True)
-        num_graphs = data["ptr"].numel() - 1
+            # Setup
+            data["node_attrs"].requires_grad_(True)
+            data["positions"].requires_grad_(True)
+            num_graphs = data["ptr"].numel() - 1
 
-        # Embeddings
-        node_feats = self.node_embedding(data["node_attrs"])
-        vectors, lengths = get_edge_vectors_and_lengths(
-            positions=data["positions"],
-            edge_index=data["edge_index"],
-            shifts=data["shifts"],
-        )
-        edge_attrs = self.spherical_harmonics(vectors)
-        edge_feats, cutoff = self.radial_embedding(
-            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
-        )
+            # logging.info('node_attrs prior to run', data["node_attrs"].detach().cpu().numpy().tolist())
+            # Embeddings
+            node_feats = self.node_embedding(data["node_attrs"])
 
-        node_feats_total = []
-        for interaction, product in zip(
-            self.interactions, self.products
-        ):
-            node_feats, sc = interaction(
-                node_attrs=data["node_attrs"],
-                node_feats=node_feats,
-                edge_attrs=edge_attrs,
-                edge_feats=edge_feats,
+            logging.info('node feats prior to run')
+            logging.info(node_feats)
+
+            vectors, lengths = get_edge_vectors_and_lengths(
+                positions=data["positions"],
                 edge_index=data["edge_index"],
-                cutoff=cutoff, 
+                shifts=data["shifts"],
             )
-            node_feats = product(
-                node_feats=node_feats,
-                sc=sc,
-                node_attrs=data["node_attrs"],
+            edge_attrs = self.spherical_harmonics(vectors)
+            edge_feats, cutoff = self.radial_embedding(
+                lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
             )
-            # node_out = readout(node_feats).squeeze(-1)
-            node_feats_total.append(node_feats)
-        
 
-        node_out = node_feats_total[0]
+            node_outs_total = []
+            for interaction, product in zip(
+                self.interactions, self.products
+            ):
+                node_feats, sc = interaction(
+                    node_attrs=data["node_attrs"],
+                    node_feats=node_feats,
+                    edge_attrs=edge_attrs,
+                    edge_feats=edge_feats,
+                    edge_index=data["edge_index"],
+                    cutoff=cutoff,
+                )
+                node_feats = product(
+                    node_feats=node_feats,
+                    sc=sc,
+                    node_attrs=data["node_attrs"],
+                )
+                node_outs_total.append(node_feats)
 
-        inter_e = scatter_mean(
-            src= node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
-        inter_std = scatter_std(
-            src=node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
-        inter_sum = scatter_sum(
-            src=node_out,
-            index=data['batch'].unsqueeze(-1),
-            dim=0,
-            dim_size=num_graphs,
-        )  # [n_graphs,16]
+            # --- in forward, replace your pooling block ---
 
-        inter_e = inter_e[:, :, None]
-        inter_std = inter_std[:, :, None]
-        inter_sum = inter_sum[:, :, None]
+            node_mixed = self.readouts[0](node_outs_total[-1])   # [N, C], irreps = 16x0e + 16x1o
 
-        graph_logits = self.readouts[0].forward((inter_e, inter_std, inter_sum))  # [n_graphs,1,16]
+            # (a) pass-through 0e blocks
+            sl = self.final_irreps.slices()
+            s0_parts = [node_mixed[..., sl_i] for (sl_i, (mul, ir)) in zip(sl, self.final_irreps) if ir.l == 0]
+            s0 = torch.cat(s0_parts, dim=-1) if s0_parts else node_mixed.new_zeros(node_mixed.shape[:-1] + (0,))
 
-        output = {
+            # (b) per-block norms (for 1o these are |v|)
+            nrm = self.block_norm(node_mixed)  # [N, n_blocks]
+
+            # (c) learned quadratic invariants from 1o⊗1o→0e
+            tp0 = self.tp11(node_mixed, node_mixed)  # [N, 1]
+
+            # project to 128-d per node (all scalars)
+            inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
+            h_node   = self.inv_proj(inv_node)            # [N, 128]
+
+            # pool (no cancellation; still invariant)
+            B = num_graphs
+            H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
+
+            graph_logits = self.simple_head(H_sum).squeeze(-1)  # [B]
+
+            output = {
             "effective_coupling": graph_logits  # [n_nodes, n_classes]
-        }
+            }   
 
-        return output
-    
+            return output

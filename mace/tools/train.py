@@ -149,6 +149,8 @@ def valid_err_log(
         )
        
     elif log_errors == "EffectiveCouplingLoss":
+        print('eval metrics available')
+        print(eval_metrics.keys())
         mae_error_e = eval_metrics["mae_graph_wide_coupling"]
         rmse_error_e = eval_metrics["rmse_graph_wide_coupling"]
         logging.info(
@@ -415,17 +417,6 @@ def take_step(
     batch = batch.to(device)
     batch_dict = batch.to_dict()
 
-    #------ SignalTap for monitoring activations and gradients during training ------
-    # tapped = SignalTap(
-    #     modules = [
-    #         model.node_embedding,
-    #         *model.interactions,
-    #         *model.products,
-    #         *model.readouts
-    #     ],
-    #     every = 10          # print every 10 optimisation steps
-    # )
-    #-------------------------------------------------------------------------------
 
     def closure():
         optimizer.zero_grad(set_to_none=True)
@@ -636,6 +627,7 @@ def evaluate(
     logging.info(output)
     avg_loss, aux = metrics.compute()
     aux["time"] = time.time() - start_time
+
     metrics.reset()
 
     for param in model.parameters():
@@ -674,6 +666,8 @@ class MACELoss(Metric):
         self.add_state("total_preds", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("E_graph_computed", default = torch.tensor(0.0), dist_reduce_fx = "sum") #count how may energies in batch
         self.add_state("delta_graph_es", default=[], dist_reduce_fx="cat")
+        self.add_state("predicted_couplings", default = [], dist_reduce_fx ="cat")
+        self.add_state("reference_couplings", default = [], dist_reduce_fx ="cat")
 
     def update(self, batch, output):  # pylint: disable=arguments-differ
         loss = self.loss_fn(pred=output, ref=batch)
@@ -741,9 +735,9 @@ class MACELoss(Metric):
             g_soft = torch.sigmoid(output["coupling_class"]).detach()  # [B,1] soft
             y_lin_softgated = y_pred_linear * g_soft
 
-            y_pred_linear = y_pred_linear * preds                  # [B]
+            # y_pred_linear = y_pred_linear * preds                  # [B]
 
-            logging.info("effective coupling predicted (linear): %s", y_pred_linear)
+            logging.info("effective coupling predicted (linear): %s", y_lin_softgated)
             logging.info("effective coupling reference         : %s", batch.effective_coupling)
 
             self.E_graph_computed += 1.0
@@ -751,6 +745,19 @@ class MACELoss(Metric):
             ref = batch.effective_coupling.to(y_pred_linear.device, y_pred_linear.dtype).reshape_as(y_pred_linear)
             self.delta_graph_es.append(ref - y_pred_linear)
 
+        if (
+            output.get("effective_coupling") is not None 
+            and batch.effective_coupling is not None 
+        ):
+            self.E_graph_computed += 1.0
+            y_pred_linear = self.loss_fn.to_linear_space(output["effective_coupling"]).squeeze(-1)  # [B]
+            ref = batch.effective_coupling.to(y_pred_linear.device, y_pred_linear.dtype).reshape_as(y_pred_linear)
+            self.delta_graph_es.append(ref - y_pred_linear)
+
+            #FOR MONITORING
+            self.predicted_couplings.append(y_pred_linear)
+            self.reference_couplings.append(ref)
+            #FOR MONITORING
 
     def convert(self, delta: Union[torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         if isinstance(delta, list):
