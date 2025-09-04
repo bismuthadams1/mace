@@ -1,0 +1,16 @@
+name: pymace_env
+channels:
+  - conda-forge
+  - pkgs/main
+dependencies:
+  - ase
+  - jupyter
+  - pandas
+  - pymace
+  - python<3.13
+  - seaborn
+  - pip:
+    - mace-torch==0.3.14
+    - tensorflow==2.19.0
+
+prefix: "/Users/k2584788/.local/share/mamba/envs/pymace_env"
