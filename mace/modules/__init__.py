@@ -38,6 +38,7 @@ from .loss import (
     WeightedHuberEnergyForcesStressLoss,
     ClassifierLoss,
     EffectiveCouplingLoss,
+    GatedEffectiveCouplingLoss,
 )
 from .models import (
     MACE, 
@@ -78,8 +79,7 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearGraphLevelCoupling": NonLinearGraphLevelCoupling,
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
     "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout,
-    "EffectiveCouplingLoss": EffectiveCouplingLoss
-
+    # "EffectiveCouplingLoss": EffectiveCouplingLoss,
 }
 
 scaling_classes: Dict[str, Callable] = {
@@ -123,6 +123,7 @@ __all__ = [
     "DipoleSingleLoss",
     "WeightedEnergyForcesDipoleLoss",
     "WeightedHuberEnergyForcesStressLoss",
+    "GatedEffectiveCouplingLoss",
     "ClassifierLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",

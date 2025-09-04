@@ -53,6 +53,7 @@ class AtomicData(torch_geometric.data.Data):
     effective_coupling: torch.Tensor
     pos_weight: torch.Tensor
     coupling_threshold: torch.Tensor
+    coupling_weight: torch.Tensor
 
     def __init__(
         self,
@@ -83,6 +84,7 @@ class AtomicData(torch_geometric.data.Data):
         coupling_class: Optional[torch.Tensor] = None,  # [,]
         effective_coupling: Optional[torch.Tensor] = None, # [,]
         coupling_threshold: Optional[torch.Tensor] = None,  # [,]
+        coupling_weight: Optional[torch.Tensor] = None,  # [,]
     ):
         # Check shapes
         num_nodes = node_attrs.shape[0]
@@ -114,6 +116,7 @@ class AtomicData(torch_geometric.data.Data):
         assert coupling_class is None or len(coupling_class.shape) == 0
         assert effective_coupling is None or len(effective_coupling.shape) == 0
         assert coupling_threshold is None or len(coupling_threshold.shape) == 0
+        assert coupling_weight is None or len(coupling_weight.shape) == 0
         # Aggregate data
         data = {
             "num_nodes": num_nodes,
@@ -144,6 +147,7 @@ class AtomicData(torch_geometric.data.Data):
             "coupling_class": coupling_class,
             "effective_coupling": effective_coupling,
             "coupling_threshold": coupling_threshold,
+            "coupling_weight": coupling_weight,
         }
         super().__init__(**data)
 
@@ -322,7 +326,7 @@ class AtomicData(torch_geometric.data.Data):
             else torch.tensor(1.0, dtype=torch.get_default_dtype())
         )
         #CHANGE THRESHOLD TO 0.09 FOR TEST
-        COUPLING_THRESHOLD = 0.1
+        COUPLING_THRESHOLD = 0.01 # in kugupu this is defined as 1 meV
         coupling_class = (energy > COUPLING_THRESHOLD).to(dtype=torch.float32)
 
         #We store effective coupling in the energy field for now
@@ -332,6 +336,14 @@ class AtomicData(torch_geometric.data.Data):
             )
             if config.properties.get("energy") is not None
             else torch.tensor(0.0, dtype=torch.get_default_dtype())
+        )
+
+        coupling_weight = (
+            torch.tensor(
+                config.property_weights.get("effective_coupling"), dtype=torch.get_default_dtype()
+            )
+            if config.property_weights.get("effective_coupling") is not None
+            else torch.tensor(1.0, dtype=torch.get_default_dtype())
         )
 
         return cls(
@@ -361,6 +373,7 @@ class AtomicData(torch_geometric.data.Data):
             total_spin=total_spin,
             coupling_class = coupling_class,
             effective_coupling = effective_coupling,
+            coupling_weight = coupling_weight,
         )
 
 

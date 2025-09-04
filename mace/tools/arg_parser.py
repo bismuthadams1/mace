@@ -133,6 +133,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "ScaleShiftBOTNet",
             "AtomicDipolesMACE",
             "EnergyDipolesMACE",
+            "GatedCouplingPredictor",
             "CouplingClassifier",
             "CouplingPredictor",
         ],
@@ -594,6 +595,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "energy_forces_dipole",
             "l1l2energyforces",
             "classifier_loss",
+            "gated_effective_coupling_loss",
         ],
     )
     parser.add_argument(
@@ -871,6 +873,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "start_swa",
             "energy_weight",
             "forces_weight",
+            "classifier_weight",
         ],
     )
 
@@ -901,6 +904,14 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.09,
     )
+
+    parser.add_argument(
+        "--classifier_weight",
+        help="Weight for the classifier loss",
+        default=1.0,
+        type=float,
+    )
+    
     
     return parser
 
@@ -1079,6 +1090,13 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         help="mean weighted sampler for the training set",
         type=str2bool,
         default=None,
+    )
+
+    parser.add_argument(
+        "--classifier_weight",
+        help="Weight for the classifier loss",
+        default=1.0,    
+        type=float,
     )
 
     return parser

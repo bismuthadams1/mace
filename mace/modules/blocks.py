@@ -112,6 +112,54 @@ class NonLinearReadoutBlock(torch.nn.Module):
                 x = mask_head(x, heads, self.num_heads)
         return self.linear_2(x)  # [n_nodes, len(heads)]
 
+@compile_mode("script")
+class ScalarTransformerHead(torch.nn.Module):
+    def __init__(self, d_model: int, num_heads: int, mlp_width: int):
+        super().__init__()
+        self.ln = torch.nn.LayerNorm(d_model)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+        )
+        self.attn = torch.nn.MultiheadAttention(
+            d_model, num_heads=num_heads, dropout=0.05, batch_first=True
+        )
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(d_model, mlp_width),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+            torch.nn.Linear(mlp_width, 1),
+        )
+    def forward(self, X):                 # X: [B, T, d_model], scalars only
+        H = self.ln(X)
+        H = self.mapper(H)
+        A, _ = self.attn(H, H, H)
+        H = H + A
+        H = H.mean(dim=1)                 # token pooling
+        return self.fc(H).squeeze(-1)
+
+
+@compile_mode("script")
+class SimpleFeedForwardHead(torch.nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.ln = torch.nn.LayerNorm(d_model)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(d_model, d_model),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.01),
+            torch.nn.Linear(d_model, 1),
+        )
+
+    def forward(self, X):                 # X: [B, T, d_model], scalars only
+        H = self.ln(X)
+        H = self.mapper(H)
+
+        # H = H.mean(dim=1)                 # token pooling
+        return H
+
+
 
 @simplify_if_compile
 @compile_mode("script")
@@ -1387,12 +1435,10 @@ class InvariantizeL0fromL1(torch.nn.Module):
             shared_weights=True,
             internal_weights=True,
             normalization="component",
-)
+        )
 
     def forward(self, x):  # x: IrrepsArray with shape [B, T, C]
-        tp = []
         tp0 = self.tp(x, x)     # IrrepsArray (only 0e by construction)
-        # tp = [tp0.tensor]       # [B, T, n_tp]
         return tp0
 
 @compile_mode("script")
@@ -1407,9 +1453,9 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         )
 
         # 2) Scalar-only stack
-        self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
+        # self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
 
-        self.mapper = torch.nn.Sequential(
+        self.mapper = torch.nn.Sequential( #Gradient dies here
             torch.nn.Linear(128, 128),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
@@ -1432,7 +1478,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         # Optional: if you currently have just one token T=1, attention degenerates.
         # Consider creating a few tokens (sum/mean/std per group, ring tokens, etc.).
-        h = self.pool_norm(h)
+        # h = self.pool_norm(h)
         h = self.mapper(h)                       # [B, T, 128]
 
         attn_out, _ = self.attn(h, h, h)         # [B, T, 128]
@@ -1447,105 +1493,3 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         logits = self.fc(h).squeeze(-1)          # [B]
         return logits
-
-
-# @compile_mode("script")
-# class TransformerGraphReadoutBlock(torch.nn.Module):
-#     def __init__(
-#         self,
-#         irreps_out: o3.Irreps,
-#         MLP_irreps: o3.Irreps,
-#         cueq_config: Optional[CuEquivarianceConfig] = None,
-#     ):
-#         super().__init__()
-        
-#         # self.pool_norm = torch.nn.LayerNorm(3)
-#         # self.pool_norm = torch.nn.LayerNorm(128)
-
-
-#         input_dim = irreps_out.dim # input dimension for the MLP
-#         # logging.info(f"input dim {input_dim}")
-
-#         self.mapper = torch.nn.Sequential(
-#             # torch.nn.Linear(128,128)
-#             Linear(irreps_out, o3.Irreps("64x0e"), cueq_config=cueq_config),
-#             torch.nn.GELU(),
-#             torch.nn.Dropout(0.01),
-#         ) # out dimension is 1, input dimension is 3 (inter_e, inter_std, inter_sum)
-
-#         mid_dim = MLP_irreps.num_irreps
-#         logging.info(f"mid dim {mid_dim}")
-#         self.attn = torch.nn.MultiheadAttention(
-#             input_dim, 8, 0.05, batch_first=True
-#         )
-
-#         self.fc = torch.nn.Sequential(
-#             torch.nn.Linear(input_dim, mid_dim),
-#             torch.nn.GELU(),
-#             torch.nn.Dropout(0.01),
-#             torch.nn.Linear(mid_dim, 1),
-#         )
-
-#     def forward(self, x: tuple[torch.Tensor]) -> torch.Tensor:
-#         # inter_e, inter_std, inter_sum  = x
-#         # momentums = torch.cat([inter_e, inter_std, inter_sum], dim=1)   
-#         # momentums = self.mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2)) # [batch_size,, 16], the cat makes [n_graphs, 16] from input 
-#         momentums = self.mapper(x)
-#         logging.info('momentums 1) out shape:')
-#         logging.info(momentums.shape)
-#         logging.info(f'momentums 1) into attention: {momentums.detach().cpu().numpy().flatten()}')
-
-#         # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])  # [batch_size,1,16]
-#         # logging.info(f"momentums into attention: {momentums}")
-        
-#         att_momentums, _ = self.attn(
-#             momentums, momentums, momentums
-#         )  # [batch_size,1,16]. attn_output, attn_output_weights = multihead_attn(query, key, value)
-#         momentums = momentums + att_momentums  # [batch_size,1,16] add the attention output to the momentums
-
-#         logging.info('momentums 2) out of attention shape:')
-#         logging.info(momentums.shape)
-#         logging.info(f'momentums 2) into attention: {momentums.detach().cpu().numpy().flatten()}')
-
-#         momentums = momentums[:, 0, :]  # [batch_size,16] remove the second dimension
-#         graph_logits = self.fc(momentums).squeeze(-1)  # [batch_size,1] apply the fully connected layer -> [batch_size]
-
-#         return graph_logits
-
-    # def __init__(
-    #     self,
-    #     irreps_out: o3.Irreps,
-    #     MLP_irreps: o3.Irreps,
-    #     cueq_config: Optional[CuEquivarianceConfig] = None,
-    # ):
-    #     super().__init__()
-        
-    #     self.pool_norm = torch.nn.LayerNorm(128)
-
-    #     input_dim = irreps_out.dim  # input dimension for the MLP
-    #     logging.info(f"input dim {input_dim}")
-
-    #     self.simple_mapper = torch.nn.Sequential(
-    #         torch.nn.Linear(128, 128*4),
-    #         torch.nn.GELU(),
-    #         torch.nn.Linear(4*128, 1),
-    #     )  # out dimension is 1, input dimension is 1 (inter_e, inter_std, inter_sum)
-
-    # def forward(self, x: torch.Tensor) -> torch.Tensor:
-    #     """
-    #     x: [batch_size, n_graphs, 3] -> [batch_size, n_graphs, 1]
-    #     """
-    #     # h = torch.nn.LayerNorm(x.shape[-1]).to(x.device)(x)
-    #     # logits = torch.nn.Sequential(
-    #     #         torch.nn.Linear(h.shape[-1], 4*h.shape[-1]),
-    #     #         torch.nn.GELU(),
-    #     #         torch.nn.Linear(4*h.shape[-1], 1),
-    #     #     ).to(h.device)(h).squeeze(-1)
-
-    #     # logging.info('logits shape:')
-    #     # logging.info(logits.shape)
-    #     x = self.pool_norm(x)
-    #     logits = self.simple_mapper(x)  # [batch_size, n_graphs, 1]
-    #     logits = logits.squeeze(-1)
-        
-    #     return logits

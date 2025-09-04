@@ -66,7 +66,7 @@ class MACECalculator(Calculator):
         model_paths: Union[list, str, None] = None,
         models: Union[List[torch.nn.Module], torch.nn.Module, None] = None,
         device: str = "cpu",
-        energy_units_to_eV: float = 1.0,
+        energy_units_to_eV: float = 1.0,  
         length_units_to_A: float = 1.0,
         default_dtype="",
         charges_key="Qs",

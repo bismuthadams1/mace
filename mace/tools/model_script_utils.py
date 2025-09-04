@@ -67,7 +67,7 @@ def configure_model(
                 )
         args.std = atomic_inter_scale
 
-    elif (args.mean is None or args.std is None) and args.model not in ("AtomicDipolesMACE","CouplingClassifier","CouplingPredictor"):
+    elif (args.mean is None or args.std is None) and args.model not in ("AtomicDipolesMACE","CouplingClassifier","CouplingPredictor","GatedCouplingPredictor"):
         args.mean, args.std = modules.scaling_classes[args.scaling](
             train_loader, atomic_energies
         )
@@ -309,8 +309,18 @@ def _build_model(
             MLP_irreps=o3.Irreps(args.MLP_irreps),
             radial_MLP=ast.literal_eval(args.radial_MLP),
             radial_type=args.radial_type,   
-
         )
 
+    if args.model == "GatedCouplingPredictor":
+        return modules.GatedCouplingPredictor(
+            **model_config,
+            distance_transform=args.distance_transform,
+            correlation=args.correlation,
+            gate=modules.gate_dict[args.gate], #unused
+            interaction_cls_first=modules.interaction_classes[args.interaction_first],
+            MLP_irreps=o3.Irreps(args.MLP_irreps),
+            radial_MLP=ast.literal_eval(args.radial_MLP),
+            radial_type=args.radial_type,   
+        )
 
     raise RuntimeError(f"Unknown model: '{args.model}'")

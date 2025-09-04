@@ -115,6 +115,23 @@ def create_error_table(
             "MAE Graph Wide Coupling",
             "RMSE Graph Wide Coupling",
         ]
+    
+    elif table_type == "GatedEffectiveCouplingLoss":
+        table.field_names = [
+            "config_type",
+            "Loss",
+            "MAE Graph Wide Coupling",
+            "RMSE Graph Wide Coupling",
+            "Accuracy",
+        ]
+    
+    elif table_type == "EffectiveCouplingLoss":
+        table.field_names = [
+            "config_type",
+            "Loss",
+            "MAE Graph Wide Coupling",
+            "RMSE Graph Wide Coupling",
+        ]
 
     for name in sorted(all_data_loaders, key=custom_key):
         if any(skip_head in name for skip_head in skip_heads):
@@ -275,6 +292,18 @@ def create_error_table(
                     f"{metrics['loss']:.4f}",
                     f"{metrics['mae_graph_wide_coupling']:.2}",
                     f"{metrics['rmse_graph_wide_coupling']:.2}",
+                ]
+
+            )
+        
+        elif table_type == "GatedEffectiveCouplingLoss":
+            table.add_row(
+                [
+                    name,
+                    f"{metrics['loss']:.4f}",
+                    f"{metrics['mae_graph_wide_coupling']:.2}",
+                    f"{metrics['rmse_graph_wide_coupling']:.2}",
+                    f"{metrics['accuracy']:.2%}",
                 ]
 
             )
