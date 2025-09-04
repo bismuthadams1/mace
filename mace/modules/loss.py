@@ -204,6 +204,25 @@ def loss_regressor_log_hard_gated(ref, pred, beta, mu, sigma, delta=0.5, ddp=Non
 
     return reduce_loss(loss, ddp)
 
+def loss_regressor_log_soft_gated(ref, pred, beta, mu, sigma, delta=1.0, ddp=None,):
+    # model outputs standardized ẑ; targets are y (linear)
+    zhat = pred["effective_coupling"]
+    y        = ref.effective_coupling.to(zhat).reshape_as(zhat)
+    pos = ref.coupling_class.to(torch.bool).reshape_as(zhat)
+    logging.info(f'positives in {pos}')
+    ylog = (torch.log1p(y / zhat.new_tensor(beta))
+            - zhat.new_tensor(mu)) / zhat.new_tensor(sigma).clamp_min(1e-6)
+    alpha = 0.01
+    w = ref.coupling_class.to(zhat.dtype).reshape_as(zhat)
+    w = alpha + (1.0 - alpha) * w
+    logging.info(f'weights going in {w}')
+
+    per = torch.nn.functional.huber_loss(zhat, ylog, delta=delta, reduction="none")
+    loss = (w * per).sum() / zhat.numel()   # normalize by B
+    logging.info(f'loss in soft gated regressor {loss}, with {pos.count_nonzero().item()} positives')
+    return reduce_loss(loss, ddp)
+
+
 def loss_regressor_log_hard(ref, pred, beta, mu, sigma, delta=0.5):
     # model outputs standardized ẑ; targets are y (linear)
     zhat_all = pred["effective_coupling"]
@@ -855,13 +874,22 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         # --- classifier ---
         loss_classifier = weighted_classifier_loss(ref= ref, pred = pred, ddp=ddp, pos_weight=self.pos_weight)
         # --- regression ---
-        loss_regressor = loss_regressor_log_hard_gated(
+        # loss_regressor = loss_regressor_log_hard_gated(
+        #     ref = ref,
+        #     pred =pred,
+        #     beta = self.beta,
+        #     mu = self.mu,
+        #     sigma= self.sigma,
+        #     ddp=ddp
+        # )
+        loss_regressor = loss_regressor_log_soft_gated(
             ref = ref,
             pred =pred,
             beta = self.beta,
             mu = self.mu,
             sigma= self.sigma,
             ddp=ddp
+
         )
         logging.info(f'loss regressor {loss_regressor}')
         logging.info(f'loss classifier {loss_classifier}')

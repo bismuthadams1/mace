@@ -1561,12 +1561,12 @@ class GatedCouplingPredictor(torch.nn.Module):
                 torch.nn.Linear(MID_DIM, MID_DIM),
             )
 
-            self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
             self.pool_gate = torch.nn.Sequential(
                 torch.nn.Linear(MID_DIM, MID_DIM // 4),
                 torch.nn.GELU(),
                 torch.nn.Linear(MID_DIM // 4, 1),
             )
+            self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
 
             self.pool_norm = torch.nn.LayerNorm(MID_DIM)
             with torch.no_grad():
@@ -1661,11 +1661,22 @@ class GatedCouplingPredictor(torch.nn.Module):
         # pool (no cancellation; still invariant)
         B = num_graphs
 
+        logging.info(f'data batch {data['batch']}')
+        logging.info(f'data batch tensor shape {data['batch'].shape}')
+
         gate   = torch.sigmoid(self.pool_gate(h_node))     # [N,1]
         gated  = gate * h_node                              # [N,D]
+        #The scatter sum pools the graphs of many atoms in to a single graph of size D. 
         sum_   = scatter_sum(gated, data['batch'], dim=0, dim_size=B)  # [B,D]
-        cnt    = torch.bincount(data['batch'], minlength=B).float().unsqueeze(1)
+        #in each slot of 0-batch['data'] how many occurances of each value in each batch (data['batch'] outputs which? 
+        #since each batch is the same molecule, this will simply be 
+        cnt    = torch.bincount(data['batch'], minlength=B).float().unsqueeze(1) 
+        logging.info(f'count {cnt}')
         pooled = self.pool_norm(sum_ / cnt.clamp_min(1.0).sqrt())  # [B,D]
+
+        with torch.no_grad():
+            g = torch.sigmoid(self.pool_gate(h_node))
+            logging.info(f"pool_gate mean={g.mean().item():.3f} std={g.std().item():.3f}")
 
         graph_logits = self.simple_head(pooled).squeeze(-1)  # [B]
 
