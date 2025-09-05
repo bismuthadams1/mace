@@ -1493,3 +1493,25 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         logits = self.fc(h).squeeze(-1)          # [B]
         return logits
+
+
+class ParallelSkipRegressorHead(torch.nn.Module):
+    def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):
+        super().__init__()
+        if hidden is None:
+            hidden = d_model
+        self.ln = torch.nn.LayerNorm(d_model)
+        self.mapper = torch.nn.Sequential(
+            torch.nn.Linear(d_model, hidden),
+            torch.nn.GELU(),
+            torch.nn.Dropout(p),
+            torch.nn.Linear(hidden, 1),
+        )
+        self.skip = torch.nn.Linear(d_model, 1)
+
+        # Start dominated by skip; let MLP learn refinements
+        torch.nn.init.zeros_(self.mapper[-1].weight)
+        torch.nn.init.zeros_(self.mapper[-1].bias)
+
+    def forward(self, x):  # [B, D]
+        return (self.skip(x) + self.mapper(self.ln(x))).squeeze(-1)
