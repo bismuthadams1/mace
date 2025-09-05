@@ -23,8 +23,8 @@ from torch_ema import ExponentialMovingAverage
 from torchmetrics import Metric
 from mace.tools.scatter import scatter_sum, scatter_mean, scatter_std
 
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter(log_dir="runs/coupling_cls")
+# from torch.utils.tensorboard import SummaryWriter
+# writer = SummaryWriter(log_dir="runs/coupling_cls")
 
 from mace.cli.visualise_train import TrainingPlotter
 
@@ -452,11 +452,11 @@ def take_step(
         grad = getattr(getattr(model, "_debug_inter_e", None), "grad", None)
         logging.info("inter_e grad norm: %s", "None" if grad is None else f"{grad.norm().item():.3e}")
 
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
-            writer.add_scalar("loss/train", loss, step)
-            step += 1
+        # for name, param in model.named_parameters():
+        #     if param.grad is not None:
+        #         writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
+        #     writer.add_scalar("loss/train", loss, step)
+        #     step += 1
         # tapped.step()  # Call the step method to print the stats
         # batch_signal = batch.to_dict()
         # num_graphs = batch["ptr"].numel() - 1
