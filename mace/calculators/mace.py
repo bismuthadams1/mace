@@ -140,6 +140,11 @@ class MACECalculator(Calculator):
                 "stress",
                 "dipole",
             ]
+        elif model_type == "GatedCouplingPredictor":
+            self.implemented_properties = [
+                "coupling_class",
+                "effective_coupling"
+            ]
         else:
             raise ValueError(
                 f"Give a valid model_type: [MACE, DipoleMACE, EnergyDipoleMACE], {model_type} not supported"
@@ -292,6 +297,14 @@ class MACECalculator(Calculator):
         if model_type in ["EnergyDipoleMACE", "DipoleMACE"]:
             dipole = torch.zeros(num_models, 3, device=self.device)
             dict_of_tensors.update({"dipole": dipole})
+
+        if model_type == "GatedCouplingPredictor":
+            coupling_class = torch.zeros(num_models, dtype=torch.int64, device=self.device)
+            effective_coupling = torch.zeros(num_models, device=self.device)
+            dict_of_tensors.update({
+                "coupling_class": coupling_class,
+                "effective_coupling": effective_coupling
+            })
         return dict_of_tensors
 
     def _atoms_to_batch(self, atoms):
@@ -379,6 +392,9 @@ class MACECalculator(Calculator):
                     ret_tensors.setdefault("atomic_virials", []).append(
                         out["atomic_virials"].detach()
                     )
+            if self.model_type in ["GatedCouplingPredictor"]:
+                ret_tensors["coupling_class"][i] = out["coupling_class"].detach()
+                ret_tensors["effective_coupling"][i] = out["effective_coupling"].detach()
 
         self.results = {}
         if self.model_type in ["MACE", "EnergyDipoleMACE"]:
@@ -449,6 +465,16 @@ class MACECalculator(Calculator):
                     .cpu()
                     .numpy()
                 )
+
+        if self.model_type == "GatedCouplingPredictor":
+            self.results["coupling_class"] = torch.mode(
+                ret_tensors["coupling_class"], dim=0
+            ).values.cpu().item()
+            self.results["effective_coupling"] = (
+                torch.mean(ret_tensors["effective_coupling"], dim=0)
+                .cpu()
+                .item()
+            )
 
     def get_hessian(self, atoms=None):
         if atoms is None and self.atoms is None:

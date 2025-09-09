@@ -1700,9 +1700,13 @@ class GatedCouplingPredictor(torch.nn.Module):
         B = num_graphs
 
         H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
-        graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
+        # graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
+        coupling_prob = self.classifier(H_sum).squeeze(-1)
 
-        coupling_prob = self.regressor(
+        # coupling_prob = self.regressor(
+        #     H_sum
+        # ).squeeze(-1)
+        effective_coupling = self.regressor(
             H_sum
         ).squeeze(-1)
        # ---------- No pooling
@@ -1710,7 +1714,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         output = {
             "coupling_class": coupling_prob,  # [n_nodes, n_classes]
-            "effective_coupling": graph_logits 
+            "effective_coupling": effective_coupling 
         }
 
         return output
