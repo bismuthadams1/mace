@@ -1576,20 +1576,6 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
 
-            # keep dtypes consistent
-            # self.float()
-            # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
-            # self.scalar_head = ScalarTransformerHead(
-            #     d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
-            # )
-
-            # ---- NEW: simple feedforward head ---
-
-            # self.regressor = SimpleFeedForwardHead(
-            #     d_model=MID_DIM #, mlp_width=MLP_irreps.num_irreps, out_dim=1
-            # )
-            # ---- Try skip connections ----
-
             self.regressor = ParallelSkipRegressorHead(
                 d_model=MID_DIM
             )
@@ -1667,35 +1653,6 @@ class GatedCouplingPredictor(torch.nn.Module):
         inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
         h_node   = self.inv_proj(inv_node)            # [N, 128]
 
-        #----- Pooling
-        # # pool (no cancellation; still invariant)
-        # B = num_graphs
-
-        # logging.info(f'data batch {data['batch']}')
-        # logging.info(f'data batch tensor shape {data['batch'].shape}')
-
-        # gate   = torch.sigmoid(self.pool_gate(h_node))     # [N,1]
-        # gated  = gate * h_node                              # [N,D]
-        # #The scatter sum pools the graphs of many atoms in to a single graph of size D. 
-        # sum_   = scatter_sum(gated, data['batch'], dim=0, dim_size=B)  # [B,D]
-        # #in each slot of 0-batch['data'] how many occurances of each value in each batch (data['batch'] outputs which? 
-        # #since each batch is the same molecule, this will simply be 
-        # cnt    = torch.bincount(data['batch'], minlength=B).float().unsqueeze(1) 
-        # logging.info(f'count {cnt}')
-        # pooled = self.pool_norm(sum_ / cnt.clamp_min(1.0).sqrt())  # [B,D]
-
-
-        # with torch.no_grad():
-        #     g = torch.sigmoid(self.pool_gate(h_node))
-        #     logging.info(f"pool_gate mean={g.mean().item():.3f} std={g.std().item():.3f}")
-
-        # graph_logits = self.simple_head(pooled).squeeze(-1)  # [B]
-
-        # coupling_prob = self.classifier(
-        #     pooled
-        # ).squeeze(-1)
-        # ---------- Pooling
-
         # ---------- No pooling
         B = num_graphs
 
@@ -1703,9 +1660,6 @@ class GatedCouplingPredictor(torch.nn.Module):
         # graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
         coupling_prob = self.classifier(H_sum).squeeze(-1)
 
-        # coupling_prob = self.regressor(
-        #     H_sum
-        # ).squeeze(-1)
         effective_coupling = self.regressor(
             H_sum
         ).squeeze(-1)
