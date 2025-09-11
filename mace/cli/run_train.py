@@ -799,7 +799,8 @@ def run(args) -> None:
             buf_name = f"reg_{name}"
             if not hasattr(model_foundation, buf_name):
                 model_foundation.register_buffer(buf_name, val)
-
+            else:
+                getattr(model, buf_name).copy_(val)
 
     logging.debug(model)
     logging.info(f"Total number of parameters: {tools.count_parameters(model)}")

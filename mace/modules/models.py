@@ -1561,14 +1561,15 @@ class GatedCouplingPredictor(torch.nn.Module):
                 torch.nn.GELU(),
                 torch.nn.Linear(MID_DIM, MID_DIM),
             )
-            #--------pooling gate stuff
+            self.pool_norm = torch.nn.LayerNorm(MID_DIM)
+            
+            #--------pooling gate stuff--- Redundant for now
             self.pool_gate = torch.nn.Sequential(
                 torch.nn.Linear(MID_DIM, MID_DIM // 4),
                 torch.nn.GELU(),
                 torch.nn.Linear(MID_DIM // 4, 1),
             )
 
-            self.pool_norm = torch.nn.LayerNorm(MID_DIM)
             with torch.no_grad():
                 if getattr(self.pool_gate[-1], "bias", None) is not None:
                     self.pool_gate[-1].bias.fill_(0.0)
