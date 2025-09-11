@@ -859,8 +859,8 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
             "pos_weight", 
             torch.tensor(pos_weight, dtype=torch.get_default_dtype()),
         )
-        self.register_buffer("beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype()))
         self.register_buffer("pos_weight_buf", torch.tensor(float(pos_weight), dtype=torch.get_default_dtype()))
+        self.register_buffer("beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype()))
         # self.register_buffer("beta", torch.tensor(1.0))
         self.register_buffer("mu",   torch.tensor(0.0)) 
         self.register_buffer("sigma",torch.tensor(1.0))
@@ -874,14 +874,6 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         # --- classifier ---
         loss_classifier = weighted_classifier_loss(ref= ref, pred = pred, ddp=ddp, pos_weight=self.pos_weight)
         # --- regression ---
-        # loss_regressor = loss_regressor_log_hard_gated(
-        #     ref = ref,
-        #     pred =pred,
-        #     beta = self.beta,
-        #     mu = self.mu,
-        #     sigma= self.sigma,
-        #     ddp=ddp
-        #)
         loss_regressor = loss_regressor_log_soft_gated(
             ref = ref,
             pred =pred,
@@ -890,8 +882,6 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
             sigma= self.sigma,
             ddp=ddp
         )
-        logging.info(f'loss regressor {loss_regressor}')
-        logging.info(f'loss classifier {loss_classifier}')
 
         return self.energy_weight * loss_regressor + self.classifier_weight * loss_classifier
     

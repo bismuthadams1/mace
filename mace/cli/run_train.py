@@ -751,7 +751,9 @@ def run(args) -> None:
                 sigma = sigma.item()
             )        # make sure this calls self.beta.copy_(...)
             loss_fn.set_pos_weight(pos_weight)                # optional helper; or pass pos_weight to your BCE
-    
+            # we need to register these buffers to the model too
+
+
     if args.model == 'CouplingPredictor':
         with torch.no_grad():
             y_list = []
@@ -791,6 +793,13 @@ def run(args) -> None:
             last = model.regressor.mapper[-1]  # your final Linear producing z
             torch.nn.init.zeros_(last.weight)
             last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
+
+        for name in ("beta", "mu", "sigma"):
+            val: torch.Tensor = getattr(loss_fn, name).detach().clone()
+            buf_name = f"reg_{name}"
+            if not hasattr(model_foundation, buf_name):
+                model_foundation.register_buffer(buf_name, val)
+
 
     logging.debug(model)
     logging.info(f"Total number of parameters: {tools.count_parameters(model)}")

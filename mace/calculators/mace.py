@@ -145,6 +145,10 @@ class MACECalculator(Calculator):
                 "coupling_class",
                 "effective_coupling"
             ]
+            m0 = self.models[0]
+            self.beta  = float(getattr(m0, "reg_beta").cpu())
+            self.mu    = float(getattr(m0, "reg_mu").cpu())
+            self.sigma = float(getattr(m0, "reg_sigma").cpu())
         else:
             raise ValueError(
                 f"Give a valid model_type: [MACE, DipoleMACE, EnergyDipoleMACE], {model_type} not supported"
@@ -299,11 +303,12 @@ class MACECalculator(Calculator):
             dict_of_tensors.update({"dipole": dipole})
 
         if model_type == "GatedCouplingPredictor":
-            coupling_class = torch.zeros(num_models, dtype=torch.int64, device=self.device)
-            effective_coupling = torch.zeros(num_models, device=self.device)
+            # store raw heads as floats
+            coupling_logit = torch.zeros(num_models, device=self.device)       # float
+            effective_z    = torch.zeros(num_models, device=self.device)       # float (log/standardized)
             dict_of_tensors.update({
-                "coupling_class": coupling_class,
-                "effective_coupling": effective_coupling
+                "coupling_logit": coupling_logit,
+                "effective_z": effective_z
             })
         return dict_of_tensors
 
@@ -467,14 +472,29 @@ class MACECalculator(Calculator):
                 )
 
         if self.model_type == "GatedCouplingPredictor":
-            self.results["coupling_class"] = torch.mode(
-                ret_tensors["coupling_class"], dim=0
-            ).values.cpu().item()
-            self.results["effective_coupling"] = (
-                torch.mean(ret_tensors["effective_coupling"], dim=0)
-                .cpu()
-                .item()
-            )
+            # self.results["coupling_class"] = torch.mode(
+            #     ret_tensors["coupling_class"], dim=0
+            # ).values.cpu().item()
+            # self.results["effective_coupling"] = (
+            #     torch.mean(ret_tensors["effective_coupling"], dim=0)
+            #     .cpu()
+            #     .item()
+            # )
+                # committee: average logits, then sigmoid
+            avg_logit = ret_tensors["coupling_logit"].mean(dim=0)
+            prob = torch.sigmoid(avg_logit).cpu().item()
+            label = int(prob >= 0.5)
+
+            # inverse transform the regressor
+            z = ret_tensors["effective_z"].mean(dim=0)  # average in z-space
+            # you must supply beta/mu/sigma here; see note below
+            y_lin = (self.beta * torch.expm1(self.mu + self.sigma * z)).cpu().item()
+            # optional hard gating:
+            # y_lin = y_lin if label == 1 else 0.0
+
+            self.results["coupling_class_prob"] = prob
+            self.results["coupling_class"] = label
+            self.results["effective_coupling"] = y_lin
 
     def get_hessian(self, atoms=None):
         if atoms is None and self.atoms is None:
