@@ -80,46 +80,6 @@ def weighted_mean_absolute_error_energy(
     )
     return reduce_loss(raw_loss, ddp)
 
-# -------------------------------------------------------------------------------
-# Binary Coupling Loss Function
-# -------------------------------------------------------------------------------
-
-# def weighted_classifier_loss(
-#     ref: Batch,
-#     pred: TensorDict,
-#     pos_weight: torch.Tensor,
-#     ddp: Optional[bool] = None,
-#     global_scale: float = 50.0,   # try 10, 50, 100 to see grads wake up
-# ) -> torch.Tensor:
-#     #logging info
-#     logging.info(f"classifier in {ref["coupling_class"]}")
-#     logging.info(f"classifier out {pred["coupling_class"]}")
-#     logging.info(f"classifier out (logits) {torch.sigmoid(pred["coupling_class"])}")
-#     logging.info(f"classifier in {ref['coupling_class'].shape} shape")
-#     logging.info(f"classifier out {pred['coupling_class'].shape} shape")
-
-#     logits = pred["coupling_class"]#.squeeze(-1) TEMPORARILY REMOVE
-#     target = ref["coupling_class"].to(logits.dtype)
-#     target = target.reshape_as(logits) 
-#     logging.info(f"target input with logits {target}")
-#     pw = pos_weight.to(device=logits.device, dtype=logits.dtype)
-
-
-#     per_graph_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-#         logits,  # probabilities in logits
-#         target,     # 0.0 or 1.0
-#         reduction="none",
-#         pos_weight = pw
-#     )
-#     # if you *also* have per-sample weights, include them; else set w=1
-#     w = torch.ones_like(per_graph_loss)
-#     if hasattr(ref, "weight"):        w = w * ref.weight.reshape(-1).to(logits.dtype, logits.device)
-#     if hasattr(ref, "energy_weight"): w = w * ref.energy_weight.reshape(-1).to(logits.dtype, logits.device)
-
-#     loss = (per_graph_loss * w).sum() / w.sum().clamp_min(1e-8) 
-
-#     return reduce_loss(loss, ddp)
-
 def weighted_classifier_loss(
     ref,                   # Batch
     pred,                  # TensorDict

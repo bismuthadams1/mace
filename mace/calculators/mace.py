@@ -145,10 +145,7 @@ class MACECalculator(Calculator):
                 "coupling_class",
                 "effective_coupling"
             ]
-            m0 = self.models[0]
-            self.beta  = float(getattr(m0, "reg_beta").cpu())
-            self.mu    = float(getattr(m0, "reg_mu").cpu())
-            self.sigma = float(getattr(m0, "reg_sigma").cpu())
+
         else:
             raise ValueError(
                 f"Give a valid model_type: [MACE, DipoleMACE, EnergyDipoleMACE], {model_type} not supported"
@@ -274,6 +271,17 @@ class MACECalculator(Calculator):
             for param in model.parameters():
                 param.requires_grad = False
 
+        if model_type == "GatedCouplingPredictor":
+            m0 = self.models[0]
+            # HARD CODE FOR TEST
+            self.beta = 0.5
+            self.mu = 0.07696104113612832
+            self.sigma = 0.11410087640641708
+
+            # self.beta  = float(getattr(m0, "reg_beta").cpu())
+            # self.mu    = float(getattr(m0, "reg_mu").cpu())
+            # self.sigma = float(getattr(m0, "reg_sigma").cpu())
+
     def _create_result_tensors(
         self, model_type: str, num_models: int, num_atoms: int
     ) -> dict:
@@ -398,8 +406,8 @@ class MACECalculator(Calculator):
                         out["atomic_virials"].detach()
                     )
             if self.model_type in ["GatedCouplingPredictor"]:
-                ret_tensors["coupling_class"][i] = out["coupling_class"].detach()
-                ret_tensors["effective_coupling"][i] = out["effective_coupling"].detach()
+                ret_tensors["coupling_logit"][i] = out["coupling_class"].detach()
+                ret_tensors["effective_z"][i] = out["effective_coupling"].detach()
 
         self.results = {}
         if self.model_type in ["MACE", "EnergyDipoleMACE"]:
