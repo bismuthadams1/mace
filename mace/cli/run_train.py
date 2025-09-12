@@ -797,8 +797,8 @@ def run(args) -> None:
         for name in ("beta", "mu", "sigma"):
             val: torch.Tensor = getattr(loss_fn, name).detach().clone()
             buf_name = f"reg_{name}"
-            if not hasattr(model_foundation, buf_name):
-                model_foundation.register_buffer(buf_name, val)
+            if not hasattr(model, buf_name):
+                model.register_buffer(buf_name, val)
 
 
     logging.debug(model)
