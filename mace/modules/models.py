@@ -1562,7 +1562,7 @@ class GatedCouplingPredictor(torch.nn.Module):
                 torch.nn.Linear(MID_DIM, MID_DIM),
             )
             self.pool_norm = torch.nn.LayerNorm(MID_DIM)
-            
+
             #--------pooling gate stuff--- Redundant for now
             self.pool_gate = torch.nn.Sequential(
                 torch.nn.Linear(MID_DIM, MID_DIM // 4),
@@ -1657,12 +1657,16 @@ class GatedCouplingPredictor(torch.nn.Module):
         # ---------- No pooling
         B = num_graphs
 
-        H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
+       # H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
+       # H_sum  = self.pool_norm(H_sum)
         # graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
-        coupling_prob = self.classifier(H_sum).squeeze(-1)
+        cnt = torch.bincount(data['batch'], minlength=B).clamp_min(1).to(h_node.dtype).unsqueeze(1)
+        H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B) / cnt          # or / cnt.sqrt()
+        H = self.pool_norm(H)  # LayerNorm over feature dim
+        coupling_prob = self.classifier(H).squeeze(-1)
 
         effective_coupling = self.regressor(
-            H_sum
+            H
         ).squeeze(-1)
        # ---------- No pooling
 
