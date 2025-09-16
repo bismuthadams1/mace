@@ -1577,10 +1577,11 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
 
-            self.regressor = ParallelSkipRegressorHead(
-                d_model=MID_DIM
-            )
-
+            # self.regressor = ParallelSkipRegressorHead(
+            #     d_model=MID_DIM
+            # )
+            self.regressor =  torch.nn.Linear(MID_DIM, 1)  # binary classification
+            
     def forward(
         self,
         data: Dict[str, torch.Tensor],
@@ -1661,7 +1662,7 @@ class GatedCouplingPredictor(torch.nn.Module):
        # H_sum  = self.pool_norm(H_sum)
         # graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
         # Layer norm before pooling
-        h_node = self.pool_norm(h_node)
+        # h_node = self.pool_norm(h_node)
         cnt = torch.bincount(data['batch'], minlength=B).clamp_min(1).to(h_node.dtype).unsqueeze(1)
         H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B) / cnt          # or / cnt.sqrt()
         # H = self.pool_norm(H)  # LayerNorm over feature dim
