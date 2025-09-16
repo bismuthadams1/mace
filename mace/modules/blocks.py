@@ -1515,3 +1515,6 @@ class ParallelSkipRegressorHead(torch.nn.Module):
 
     def forward(self, x):  # [B, D]
         return (self.skip(x) + self.mapper(self.ln(x))).squeeze(-1)
+    
+class LinearBlock(torch.nn.Module):
+    ...

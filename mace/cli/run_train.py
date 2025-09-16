@@ -790,7 +790,8 @@ def run(args) -> None:
     if args.model == "GatedCouplingPredictor":
         with torch.no_grad():
             # last linear producing z
-            last = model.regressor.mapper[-1]  # your final Linear producing z
+            # last = model.regressor.mapper[-1]  # your final Linear producing z
+            last = model.regressor
             torch.nn.init.zeros_(last.weight)
             last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
 
