@@ -1664,7 +1664,7 @@ class GatedCouplingPredictor(torch.nn.Module):
         # Layer norm before pooling
         # h_node = self.pool_norm(h_node)
         cnt = torch.bincount(data['batch'], minlength=B).clamp_min(1).to(h_node.dtype).unsqueeze(1)
-        H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B) / cnt          # or / cnt.sqrt()
+        H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B)          # or / cnt.sqrt()
         # H = self.pool_norm(H)  # LayerNorm over feature dim
         coupling_prob = self.classifier(H).squeeze(-1)
 
