@@ -1515,3 +1515,16 @@ class ParallelSkipRegressorHead(torch.nn.Module):
 
     def forward(self, x):  # [B, D]
         return (self.skip(x) + self.mapper(self.ln(x))).squeeze(-1)
+
+# class LinearSkipRegressor(torch.nn.Module):
+#     def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):
+#         super().__init__()
+#         if hidden is None:
+#             hidden = d_model
+#         self.ln = torch.nn.LayerNorm(d_model)
+#         self.mapper = torch.nn.Sequential(
+#             torch.nn.Linear(d_model,1)
+#         )
+
+#     def forward(self, x): # [B,D]
+#         return (self.mapper(self.ln(x))+x) adding x back means it is 

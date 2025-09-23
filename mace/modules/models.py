@@ -1553,7 +1553,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
             concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
 
-            MID_DIM = 64
+            # MID_DIM = 64
+            MID_DIM = concat_dim
             # project to 64-d per node (all scalars)
 
             self.inv_proj = torch.nn.Sequential(
@@ -1653,7 +1654,8 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         # project to 128-d per node (all scalars)
         inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
-        h_node   = self.inv_proj(inv_node)            # [N, 128]
+        # h_node   = self.inv_proj(inv_node)            # [N, 128]
+        h_node = inv_node
 
         # ---------- No pooling
         B = num_graphs
@@ -1664,7 +1666,8 @@ class GatedCouplingPredictor(torch.nn.Module):
         # Layer norm before pooling
         # h_node = self.pool_norm(h_node)
         cnt = torch.bincount(data['batch'], minlength=B).clamp_min(1).to(h_node.dtype).unsqueeze(1)
-        H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B)          # or / cnt.sqrt()
+        # H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B)          # or / cnt.sqrt()
+        H = scatter_mean(h_node, data['batch'], dim=0, dim_size=B)
         # H = self.pool_norm(H)  # LayerNorm over feature dim
         coupling_prob = self.classifier(H).squeeze(-1)
 
@@ -1672,7 +1675,6 @@ class GatedCouplingPredictor(torch.nn.Module):
             H
         ).squeeze(-1)
        # ---------- No pooling
-
 
         output = {
             "coupling_class": coupling_prob,  # [n_nodes, n_classes]
