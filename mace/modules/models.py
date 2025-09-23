@@ -1571,9 +1571,9 @@ class GatedCouplingPredictor(torch.nn.Module):
             #     torch.nn.Linear(MID_DIM // 4, 1),
             # )
 
-            with torch.no_grad():
-                if getattr(self.pool_gate[-1], "bias", None) is not None:
-                    self.pool_gate[-1].bias.fill_(0.0)
+            # with torch.no_grad():
+            #     if getattr(self.pool_gate[-1], "bias", None) is not None:
+            #         self.pool_gate[-1].bias.fill_(0.0)
             #--------pooling gate stuff
 
             self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
