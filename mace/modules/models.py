@@ -1668,12 +1668,17 @@ class GatedCouplingPredictor(torch.nn.Module):
         cnt = torch.bincount(data['batch'], minlength=B).clamp_min(1).to(h_node.dtype).unsqueeze(1)
         # H = scatter_sum(h_node, data['batch'], dim=0, dim_size=B)          # or / cnt.sqrt()
         H = scatter_mean(h_node, data['batch'], dim=0, dim_size=B)
+
+        #Add residual connection to H
+        # H = 
+        
+        with torch.no_grad():
+            print("H (no_grad sample):", H[:2].clone())
+
         # H = self.pool_norm(H)  # LayerNorm over feature dim
         coupling_prob = self.classifier(H).squeeze(-1)
 
-        effective_coupling = self.regressor(
-            H
-        ).squeeze(-1)
+        effective_coupling = self.regressor(H).squeeze(-1)
        # ---------- No pooling
 
         output = {
