@@ -1538,7 +1538,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.tp11 = o3.TensorProduct(
                 final_irreps, final_irreps,
-                irreps_out=o3.Irreps("1x0e"),   # a small learned scalar from 1o⊗1o which is the outer product of two vectors, where the scalar component is the trace of the outer product matrix
+                irreps_out=o3.Irreps("8x0e"),   # a small learned scalar from 1o⊗1o which is the outer product of two vectors, where the scalar component is the trace of the outer product matrix
                 instructions=instr,
                 internal_weights=True,
                 shared_weights=True,
