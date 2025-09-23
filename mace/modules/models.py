@@ -1557,19 +1557,19 @@ class GatedCouplingPredictor(torch.nn.Module):
             MID_DIM = concat_dim
             # project to 64-d per node (all scalars)
 
-            self.inv_proj = torch.nn.Sequential(
-                torch.nn.Linear(concat_dim, MID_DIM),
-                torch.nn.GELU(),
-                torch.nn.Linear(MID_DIM, MID_DIM),
-            )
-            self.pool_norm = torch.nn.LayerNorm(MID_DIM)
+            # self.inv_proj = torch.nn.Sequential(
+            #     torch.nn.Linear(concat_dim, MID_DIM),
+            #     torch.nn.GELU(),
+            #     torch.nn.Linear(MID_DIM, MID_DIM),
+            # )
+            # self.pool_norm = torch.nn.LayerNorm(MID_DIM)
 
             #--------pooling gate stuff--- Redundant for now
-            self.pool_gate = torch.nn.Sequential(
-                torch.nn.Linear(MID_DIM, MID_DIM // 4),
-                torch.nn.GELU(),
-                torch.nn.Linear(MID_DIM // 4, 1),
-            )
+            # self.pool_gate = torch.nn.Sequential(
+            #     torch.nn.Linear(MID_DIM, MID_DIM // 4),
+            #     torch.nn.GELU(),
+            #     torch.nn.Linear(MID_DIM // 4, 1),
+            # )
 
             with torch.no_grad():
                 if getattr(self.pool_gate[-1], "bias", None) is not None:
@@ -1673,7 +1673,7 @@ class GatedCouplingPredictor(torch.nn.Module):
         # H = 
         
         with torch.no_grad():
-            print("H (no_grad sample):", H[:2].clone())
+            logging.info("H (no_grad sample):", H[:2].clone())
 
         # H = self.pool_norm(H)  # LayerNorm over feature dim
         coupling_prob = self.classifier(H).squeeze(-1)
