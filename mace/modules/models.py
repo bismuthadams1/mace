@@ -1487,7 +1487,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
-            self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
+            # self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
+            self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = hidden_irreps))
 
             self.readout_cls = readout_cls
 
@@ -1523,16 +1524,18 @@ class GatedCouplingPredictor(torch.nn.Module):
                 self.products.append(prod)
                 irreps_by_layer.append(hidden_irreps_out)
                 if i == num_interactions - 2:
+                    # last layer non-linear readout
                     self.readouts.append(
                         self.readout_cls(
                             hidden_irreps_out,
                             (2 * MLP_irreps).simplify(), #2 Heads
                             gate = torch.nn.functional.silu, #Hard code SiLU gate,
-                            irrep_out = o3.Irreps("2x0e"),
+                            irrep_out = hidden_irreps,
                             num_heads = 2,
                         )
                     )
                 else:
+                    # interlayer readouts
                     self.readouts.append(
                         LinearReadoutBlock(
                             irreps_in= hidden_irreps,
