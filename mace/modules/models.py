@@ -1525,9 +1525,9 @@ class GatedCouplingPredictor(torch.nn.Module):
            
             self.final_irreps = final_irreps  # store for later use
       
-            self.classifier = Linear(final_irreps, "0xe")  # binary classification
+            self.classifier = Linear(final_irreps, "1x0e")  # binary classification
 
-            self.regressor  = Linear(final_irreps, "0xe") # simple regressor
+            self.regressor  = Linear(final_irreps, "1x0e") # simple regressor
 
 
     def forward(
