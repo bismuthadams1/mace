@@ -1593,7 +1593,7 @@ class GatedCouplingPredictor(torch.nn.Module):
                 node_attrs=data["node_attrs"],
             )
 
-            node_out = self.readouts(node_feats).squeeze(-1)
+            node_out = readout(node_feats).squeeze(-1)
             node_outs_total.append(node_out)
 
             B = data["ptr"].numel() - 1
@@ -1603,7 +1603,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
 
         H_last = readouts_per_layer[-1]    # [B, 2]
-        total_logits  = H_last[:, 0]                 # regressor (log-space)
+        total_logits  = H_last[:, 0]                 # regressor (log-space), using : to grab the batch
         total_coupling = H_last[:, 1]                 # classifier logits
 
         output = {
