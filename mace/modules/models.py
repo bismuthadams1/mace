@@ -1488,7 +1488,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.readouts = torch.nn.ModuleList()
 
-            self.pool_norm = torch.nn.LayerNorm(64)
+            self.readout_cls = readout_cls
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1540,13 +1540,13 @@ class GatedCouplingPredictor(torch.nn.Module):
                     )
             
             # final_irreps = irreps_by_layer[-1]
-            final_irreps =  o3.Irreps("2x0e"),
+            # final_irreps =  o3.Irreps("2x0e"),
            
-            self.final_irreps = final_irreps  # store for later use
+            # self.final_irreps = final_irreps  # store for later use
       
-            self.classifier = Linear(final_irreps, "1x0e")  # binary classification
+            # self.classifier = Linear(final_irreps, "1x0e")  # binary classification
 
-            self.regressor  = Linear(final_irreps, "1x0e") # simple regressor
+            # self.regressor  = Linear(final_irreps, "1x0e") # simple regressor
 
 
     def forward(
@@ -1585,8 +1585,9 @@ class GatedCouplingPredictor(torch.nn.Module):
         )
 
         node_outs_total = []
-        for interaction, product in zip(
-            self.interactions, self.products
+        readouts_per_layer = []
+        for interaction, product, readout in zip(
+            self.interactions, self.products, self.readouts
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1601,35 +1602,19 @@ class GatedCouplingPredictor(torch.nn.Module):
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
-            # node_out = readout(node_feats).squeeze(-1)
-            node_outs_total.append(node_feats)
-    
 
-        # h_node = self.readouts[0](node_outs_total[-1])   # [B, N, C], irreps = 16x0e + 16x1o
+            node_out = self.readouts(node_feats).squeeze(-1)
+            node_outs_total.append(node_out)
 
-        # B = num_graphs
+            B = data["ptr"].numel() - 1
+            graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
+            readouts_per_layer.append(graph_out)
 
-        # H_sum  = scatter_sum(h_node, index = data['batch'], dim=0, dim_size=B)  # [B,128]
-        # H_mean = scatter_mean(h_node, index = data['batch'], dim=0, dim_size=B)
-        # H_std = scatter_std(h_node, index = data['batch'], dim=0, dim_size=B)
 
-        graph_logits = self.classifier(node_outs_total[-1]).squeeze(-1)  # [B]
 
-        coupling_prob = self.regressor(node_outs_total[-1]).squeeze(-1)
-
-        total_coupling =  scatter_mean(
-            src = coupling_prob,
-            index = data['batch'],
-            dim = 0,
-            dim_size= num_graphs
-        )
-
-        total_logits = scatter_mean(
-            src= graph_logits,
-            index= data['batch'],
-            dim = 0,
-            dim_size= num_graphs
-        )
+        H_last = readouts_per_layer[-1]    # [B, 2]
+        total_logits  = H_last[:, 0]                 # regressor (log-space)
+        total_coupling = H_last[:, 1]                 # classifier logits
 
         output = {
             "coupling_class": total_logits,  # [n_nodes, n_classes]
