@@ -1598,9 +1598,23 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         coupling_prob = self.regressor(node_outs_total[-1]).squeeze(-1)
 
+        total_coupling =  scatter_mean(
+            src = coupling_prob,
+            index = data['batch'],
+            dim = 0,
+            dim_size= num_graphs
+        )
+
+        total_logits = scatter_mean(
+            src= graph_logits,
+            index= data['batch'],
+            dim = 0,
+            dim_size= num_graphs
+        )
+
         output = {
-            "coupling_class": coupling_prob,  # [n_nodes, n_classes]
-            "effective_coupling": graph_logits 
+            "coupling_class": total_logits,  # [n_nodes, n_classes]
+            "effective_coupling": total_coupling 
         }
 
         return output
