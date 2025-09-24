@@ -1522,19 +1522,9 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
             
             final_irreps = irreps_by_layer[-1]
-            # final_irreps = o3.Irreps("1x0e + 1x1o")
-            # keep this — vectors are 1o (not 1e)
+           
             self.final_irreps = final_irreps  # store for later use
-            # self.readouts.append(  # per-node mixed irreps
-            #     LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
-            # )
-
-            # self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
-
-            # with torch.no_grad():
-            #     if getattr(self.pool_gate[-1], "bias", None) is not None:
-            #         self.pool_gate[-1].bias.fill_(0.0)
-
+      
             self.classifier = Linear(final_irreps, "0xe")  # binary classification
 
             self.regressor  = Linear(final_irreps, "0xe") # simple regressor
@@ -1598,20 +1588,15 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         # h_node = self.readouts[0](node_outs_total[-1])   # [B, N, C], irreps = 16x0e + 16x1o
 
-        # ---------- No pooling
         # B = num_graphs
 
         # H_sum  = scatter_sum(h_node, index = data['batch'], dim=0, dim_size=B)  # [B,128]
         # H_mean = scatter_mean(h_node, index = data['batch'], dim=0, dim_size=B)
         # H_std = scatter_std(h_node, index = data['batch'], dim=0, dim_size=B)
 
-        # H_stack = torch.stack()
-
-
         graph_logits = self.classifier(node_outs_total[-1]).squeeze(-1)  # [B]
 
         coupling_prob = self.regressor(node_outs_total[-1]).squeeze(-1)
-       # ---------- No pooling
 
         output = {
             "coupling_class": coupling_prob,  # [n_nodes, n_classes]
