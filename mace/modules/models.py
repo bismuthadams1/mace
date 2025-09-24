@@ -1604,8 +1604,6 @@ class GatedCouplingPredictor(torch.nn.Module):
             graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
             readouts_per_layer.append(graph_out)
 
-
-
         H_last = readouts_per_layer[-1]    # [B, 2]
         total_logits  = H_last[:, 0]                 # regressor (log-space), using : to grab the batch
         total_coupling = H_last[:, 1]                 # classifier logits
