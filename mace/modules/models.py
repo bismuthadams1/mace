@@ -1702,6 +1702,9 @@ class GatedCouplingPredictor(torch.nn.Module):
         H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
         graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
 
+        with torch.no_grad():
+            logging.info("H (no_grad sample):",H_sum[:2].clone())
+
         coupling_prob = self.regressor(
             H_sum
         ).squeeze(-1)
