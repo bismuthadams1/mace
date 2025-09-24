@@ -1486,9 +1486,6 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts = torch.nn.ModuleList()
-            # self.readouts.append(LinearReadoutBlock(hidden_irreps, dipole_only=False))
-
-            self.products = torch.nn.ModuleList([prod])
 
             self.pool_norm = torch.nn.LayerNorm(64)
 
@@ -1525,74 +1522,23 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
             
             final_irreps = irreps_by_layer[-1]
+            # final_irreps = o3.Irreps("1x0e + 1x1o")
             # keep this — vectors are 1o (not 1e)
             self.final_irreps = final_irreps  # store for later use
-            self.readouts.append(  # per-node mixed irreps
-                LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
-            )
-
-            # ---- NEW: per-node invariantizer pieces ----
-            # all pairs of 1o blocks: 1o ⊗ 1o → 0e basically turns vectors into scalars
-            one_idxs = [i for i, (_, ir) in enumerate(final_irreps) if ir.l == 1] 
-            instr = [(i, j, 0, "uvw", 1.0) for i in one_idxs for j in one_idxs] #index pairs of 1o irreps
-
-            self.tp11 = o3.TensorProduct(
-                final_irreps, final_irreps,
-                irreps_out=o3.Irreps("1x0e"),   # a small learned scalar from 1o⊗1o which is the outer product of two vectors, where the scalar component is the trace of the outer product matrix
-                instructions=instr,
-                internal_weights=True,
-                shared_weights=True,
-                normalization="component",
-            )
-
-            self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
-
-            # sizes for projector: [scalar_pass_through | norms | tp11]
-            n0 = sum(m for m, ir in final_irreps if ir.l == 0)   # total scalar channels
-            norms_dim  = sum(m for m, _  in self.final_irreps)                # 16+16 = 32, where we norm both 0e and 1o blocks (norm of 0e is abs, norm of 1o is |v|)
-            tp_dim     = self.tp11.irreps_out.dim                             # 1 channel from 1o⊗1o→0e
-            concat_dim = n0 + norms_dim + tp_dim                              # 16 + 32 + 1 = 49 
-
-            MID_DIM = 64
-            # project to 64-d per node (all scalars)
-
-            self.inv_proj = torch.nn.Sequential(
-                torch.nn.Linear(concat_dim, MID_DIM),
-                torch.nn.GELU(),
-                torch.nn.Linear(MID_DIM, MID_DIM),
-            )
-            #--------pooling gate stuff
-            self.pool_gate = torch.nn.Sequential(
-                torch.nn.Linear(MID_DIM, MID_DIM // 4),
-                torch.nn.GELU(),
-                torch.nn.Linear(MID_DIM // 4, 1),
-            )
-
-            self.pool_norm = torch.nn.LayerNorm(MID_DIM)
-            with torch.no_grad():
-                if getattr(self.pool_gate[-1], "bias", None) is not None:
-                    self.pool_gate[-1].bias.fill_(0.0)
-            #--------pooling gate stuff
-
-            self.classifier = torch.nn.Linear(MID_DIM, 1)  # binary classification
-
-            # keep dtypes consistent
-            # self.float()
-            # ---- NEW: scalar-only transformer head (no invariantizer inside) ----
-            # self.scalar_head = ScalarTransformerHead(
-            #     d_model=128, num_heads=4, mlp_width=MLP_irreps.num_irreps
+            # self.readouts.append(  # per-node mixed irreps
+            #     LinearReadoutBlock(hidden_irreps, irrep_out=final_irreps)
             # )
 
-            # ---- NEW: simple feedforward head ---
+            # self.block_norm = o3.Norm(final_irreps)  # per-block norms → scalars
 
-            # self.regressor = SimpleFeedForwardHead(
-            #     d_model=MID_DIM #, mlp_width=MLP_irreps.num_irreps, out_dim=1
-            # )
-            # ---- Try skip connections ----
+            # with torch.no_grad():
+            #     if getattr(self.pool_gate[-1], "bias", None) is not None:
+            #         self.pool_gate[-1].bias.fill_(0.0)
 
-            self.regressor = ParallelSkipRegressorHead(
-                d_model=MID_DIM
-            )
+            self.classifier = Linear(final_irreps, "0xe")  # binary classification
+
+            self.regressor  = Linear(final_irreps, "0xe") # simple regressor
+
 
     def forward(
         self,
@@ -1650,63 +1596,22 @@ class GatedCouplingPredictor(torch.nn.Module):
             node_outs_total.append(node_feats)
         
 
-        node_mixed = self.readouts[0](node_outs_total[-1])   # [N, C], irreps = 16x0e + 16x1o
-
-        # (a) pass-through 0e blocks
-        sl = self.final_irreps.slices()
-        s0_parts = [node_mixed[..., sl_i] for (sl_i, (mul, ir)) in zip(sl, self.final_irreps) if ir.l == 0]
-        s0 = torch.cat(s0_parts, dim=-1) if s0_parts else node_mixed.new_zeros(node_mixed.shape[:-1] + (0,))
-
-        # (b) per-block norms (for 1o these are |v|)
-        nrm = self.block_norm(node_mixed)  # [N, n_blocks]
-
-        # (c) learned quadratic invariants from 1o⊗1o→0e
-        tp0 = self.tp11(node_mixed, node_mixed)  # [N, 1]
-
-        # project to 128-d per node (all scalars)
-        inv_node = torch.cat([s0, nrm, tp0], dim=-1)  # [N, concat_dim]
-        h_node   = self.inv_proj(inv_node)            # [N, 128]
-
-        #----- Pooling
-        # # pool (no cancellation; still invariant)
-        # B = num_graphs
-
-        # logging.info(f'data batch {data['batch']}')
-        # logging.info(f'data batch tensor shape {data['batch'].shape}')
-
-        # gate   = torch.sigmoid(self.pool_gate(h_node))     # [N,1]
-        # gated  = gate * h_node                              # [N,D]
-        # #The scatter sum pools the graphs of many atoms in to a single graph of size D. 
-        # sum_   = scatter_sum(gated, data['batch'], dim=0, dim_size=B)  # [B,D]
-        # #in each slot of 0-batch['data'] how many occurances of each value in each batch (data['batch'] outputs which? 
-        # #since each batch is the same molecule, this will simply be 
-        # cnt    = torch.bincount(data['batch'], minlength=B).float().unsqueeze(1) 
-        # logging.info(f'count {cnt}')
-        # pooled = self.pool_norm(sum_ / cnt.clamp_min(1.0).sqrt())  # [B,D]
-
-
-        # with torch.no_grad():
-        #     g = torch.sigmoid(self.pool_gate(h_node))
-        #     logging.info(f"pool_gate mean={g.mean().item():.3f} std={g.std().item():.3f}")
-
-        # graph_logits = self.simple_head(pooled).squeeze(-1)  # [B]
-
-        # coupling_prob = self.classifier(
-        #     pooled
-        # ).squeeze(-1)
-        # ---------- Pooling
+        # h_node = self.readouts[0](node_outs_total[-1])   # [B, N, C], irreps = 16x0e + 16x1o
 
         # ---------- No pooling
-        B = num_graphs
+        # B = num_graphs
 
-        H_sum  = scatter_sum( h_node, data['batch'], dim=0, dim_size=B)  # [B,128]
-        graph_logits = self.classifier(H_sum).squeeze(-1)  # [B]
+        # H_sum  = scatter_sum(h_node, index = data['batch'], dim=0, dim_size=B)  # [B,128]
+        # H_mean = scatter_mean(h_node, index = data['batch'], dim=0, dim_size=B)
+        # H_std = scatter_std(h_node, index = data['batch'], dim=0, dim_size=B)
 
-        coupling_prob = self.regressor(
-            H_sum
-        ).squeeze(-1)
+        # H_stack = torch.stack()
+
+
+        graph_logits = self.classifier(node_outs_total[-1]).squeeze(-1)  # [B]
+
+        coupling_prob = self.regressor(node_outs_total[-1]).squeeze(-1)
        # ---------- No pooling
-
 
         output = {
             "coupling_class": coupling_prob,  # [n_nodes, n_classes]
