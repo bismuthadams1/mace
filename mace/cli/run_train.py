@@ -785,12 +785,12 @@ def run(args) -> None:
     model, output_args = configure_model(args, train_loader, atomic_energies, model_foundation, heads, z_table, head_configs)
     model.to(device)
 
-    if args.model == "GatedCouplingPredictor":
-        with torch.no_grad():
-            # last linear producing z
-            last = model.regressor.mapper[-1]  # your final Linear producing z
-            torch.nn.init.zeros_(last.weight)
-            last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
+    # if args.model == "GatedCouplingPredictor":
+    #     with torch.no_grad():
+    #         # last linear producing z
+    #         last = model.regressor.mapper[-1]  # your final Linear producing z
+    #         torch.nn.init.zeros_(last.weight)
+    #         last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
 
     logging.debug(model)
     logging.info(f"Total number of parameters: {tools.count_parameters(model)}")
