@@ -1403,6 +1403,7 @@ class GatedCouplingPredictor(torch.nn.Module):
         cueq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
         oeq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
         edge_irreps: Optional[o3.Irreps] = None,  # pylint: disable=unused-argument
+        readout_cls: Optional[Type[NonLinearReadoutBlock]] = NonLinearReadoutBlock,
         ):
             """Initializes a coupling classifier for MACE.
 
@@ -1520,8 +1521,26 @@ class GatedCouplingPredictor(torch.nn.Module):
                 )
                 self.products.append(prod)
                 irreps_by_layer.append(hidden_irreps_out)
+                if i == num_interactions - 2:
+                    self.readouts.append(
+                        self.readout_cls(
+                            hidden_irreps_out,
+                            (2 * MLP_irreps).simplify(), #2 Heads
+                            gate = torch.nn.functional.silu, #Hard code SiLU gate,
+                            irrep_out = o3.Irreps("2x0e"),
+                            num_heads = 2,
+                        )
+                    )
+                else:
+                    self.readouts.append(
+                        LinearReadoutBlock(
+                            irreps_in= hidden_irreps,
+                            irrep_out=  o3.Irreps("2x0e"),
+                        )
+                    )
             
-            final_irreps = irreps_by_layer[-1]
+            # final_irreps = irreps_by_layer[-1]
+            final_irreps =  o3.Irreps("2x0e"),
            
             self.final_irreps = final_irreps  # store for later use
       
@@ -1584,7 +1603,7 @@ class GatedCouplingPredictor(torch.nn.Module):
             )
             # node_out = readout(node_feats).squeeze(-1)
             node_outs_total.append(node_feats)
-        
+    
 
         # h_node = self.readouts[0](node_outs_total[-1])   # [B, N, C], irreps = 16x0e + 16x1o
 
