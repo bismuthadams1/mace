@@ -1615,6 +1615,19 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         return output
 
+class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
+    def __init__(
+        self,
+        atomic_inter_scale: float,
+        atomic_inter_shift: float,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.scale_shift = ScaleShiftBlock(
+            scale=atomic_inter_scale, shift=atomic_inter_shift
+        )
+
+
 @compile_mode("script")
 class CouplingPredictor(torch.nn.Module):
 
