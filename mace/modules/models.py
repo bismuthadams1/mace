@@ -1604,13 +1604,28 @@ class GatedCouplingPredictor(torch.nn.Module):
             graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
             readouts_per_layer.append(graph_out)
 
-        H_last = readouts_per_layer[-1]    # [B, 2]
-        total_logits  = H_last[:, 0]                 # regressor (log-space), using : to grab the batch
-        total_coupling = H_last[:, 1]                 # classifier logits
+        # H_last = readouts_per_layer[-1]    # [B, 2]
+        # total_logits  = H_last[:, 0]                 # regressor (log-space), using : to grab the batch
+        # total_coupling = H_last[:, 1]                 # classifier logits
+        H_layers = torch.stack(readouts_per_layer, dim=-1)
+        logit_layers = H_layers[:, 0, :]
+        coupling_layers = H_layers[:, 1, :]
+        total_logit_layers = torch.sum(logit_layers, dim=-1)
+        total_coupling_layers = torch.sum(coupling_layers, dim=-1)
+        # contributions   = torch.stack(readouts_per_layer, dim=-1)
+        # total_logits           = torch.sum(contributions_logits, dim = -1)
+        # contributions_coupling = torch.stack(readouts_per_layer[:,1])
+        # total_coupling         = torch.sum(contributions_coupling, dim = -1)
+
+        # z_layers     = H_layers[:, 0, :]            # regressor per layer [B, L]
+        # logit_layers = H_layers[:, 1, :]            # classifier per layer [B, L]
+        # z_sum        = z_layers.sum(dim=-1)         # [B]
+        # logit_sum    = logit_layers.sum(dim=-1)     # [B]
+
 
         output = {
-            "coupling_class": total_logits,  # [n_nodes, n_classes]
-            "effective_coupling": total_coupling 
+            "coupling_class": total_logit_layers,  # [n_nodes, n_classes]
+            "effective_coupling": total_coupling_layers 
         }
 
         return output
@@ -1626,7 +1641,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         self.scale_shift = ScaleShiftBlock(
             scale=atomic_inter_scale, shift=atomic_inter_shift
         )
-
+    ...
 
 @compile_mode("script")
 class CouplingPredictor(torch.nn.Module):

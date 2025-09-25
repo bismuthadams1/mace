@@ -135,4 +135,5 @@ __all__ = [
     "compute_statistics",
     "compute_fixed_charge_dipole",
     "GatedCouplingPredictor",
+    "ScaleShiftGatedCouplingPredictor",
 ]

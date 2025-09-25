@@ -496,6 +496,16 @@ def run(args) -> None:
         args.compute_stress = False
         args.loss = "gated_effective_coupling_loss"
         args.error_table = "GatedEffectiveCouplingLoss"
+    elif args.model == "ScaleShiftGatedCouplingPredictor":
+        atomic_energies = None
+        dipole_only = None
+        args.compute_dipole = False
+        args.compute_energy = False
+        args.compute_forces = False
+        args.compute_virials = False
+        args.compute_stress = False
+        args.loss = "gated_effective_coupling_loss"
+        args.error_table = "GatedEffectiveCouplingLoss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
