@@ -1982,28 +1982,19 @@ class CouplingPredictor(torch.nn.Module):
                     node_attrs=data["node_attrs"],
                 )
 
-            node_out = readout(node_feats).squeeze(-1)
-            node_outs_total.append(node_out)
+                node_out = readout(node_feats).squeeze(-1)
+                node_outs_total.append(node_out)
 
-            B = data["ptr"].numel() - 1
-            graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
-            readouts_per_layer.append(graph_out)
+                B = data["ptr"].numel() - 1
+                graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
+                readouts_per_layer.append(graph_out)
 
             H_layers = torch.stack(readouts_per_layer, dim=-1)
-            logit_layers = H_layers[:, 0, :]
-            coupling_layers = H_layers[:, 1, :]
-            total_logit_layers = torch.sum(logit_layers, dim=-1)
+            coupling_layers = H_layers[:, 0, :]
             total_coupling_layers = torch.sum(coupling_layers, dim=-1)
 
             output = {
-                "coupling_class": total_logit_layers,  # [n_nodes, n_classes]
-                "effective_coupling": total_coupling_layers 
-        }
-
-        return output
-
-            output = {
-            "effective_coupling": graph_logits  # [n_nodes, n_classes]
-            }   
+                    "effective_coupling": total_coupling_layers 
+            }
 
             return output
