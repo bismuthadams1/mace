@@ -1659,6 +1659,7 @@ class CouplingPredictor(torch.nn.Module):
         cueq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
         oeq_config: Optional[Dict[str, Any]] = None,  # pylint: disable=unused-argument
         edge_irreps: Optional[o3.Irreps] = None,  # pylint: disable=unused-argument
+        readout_cls: Optional[Type[NonLinearReadoutBlock]] = NonLinearReadoutBlock,
         ):
             """Initializes a coupling classifier for MACE.
 
