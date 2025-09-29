@@ -886,10 +886,10 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         self.use_uncertainty = use_uncertainty
         if use_uncertainty:
             self.log_sigma_reg = torch.nn.Parameter(
-                torch.tensor(init_log_sigma_reg), dtype = torch.get_default_dtype()
+                torch.tensor(init_log_sigma_reg, dtype = torch.get_default_dtype())
             )
             self.log_sigma_cls = torch.nn.Parameter(
-                torch.tensor(init_log_sigma_cls), dtype = torch.get_default_dtype()
+                torch.tensor(init_log_sigma_cls, dtype = torch.get_default_dtype())
             )
         else:
             # no learnable uncertainty; static weights only
