@@ -849,6 +849,9 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
                 energy_weight: float = 1.0,
                 classifier_weight: float = 1.0,
                 neg_z_penalty: float = 1e-3,
+                use_uncertainty: bool = True,
+                init_log_sigma_reg: float = 0.0,
+                init_log_sigma_cls: float = 0.0,
                 ):
         super().__init__()
         self.register_buffer( #parameters to be loaded into the state dict
@@ -856,23 +859,51 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
             torch.tensor(energy_weight, dtype=torch.get_default_dtype()),
         )
         self.register_buffer(
+            "classifier_weight",
+            torch.tensor(classifier_weight, dtype = torch.get_default_dtype())
+        )
+        self.register_buffer(
             "pos_weight", 
             torch.tensor(pos_weight, dtype=torch.get_default_dtype()),
         )
-        self.register_buffer("beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype()))
-        self.register_buffer("pos_weight_buf", torch.tensor(float(pos_weight), dtype=torch.get_default_dtype()))
+        self.register_buffer(
+            "beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype())
+        )
+        self.register_buffer(
+            "pos_weight_buf", torch.tensor(float(pos_weight), dtype=torch.get_default_dtype())    
+        )
         # self.register_buffer("beta", torch.tensor(1.0))
-        self.register_buffer("mu",   torch.tensor(0.0)) 
-        self.register_buffer("sigma",torch.tensor(1.0))
+        self.register_buffer(
+            "mu",   torch.tensor(0.0)
+        ) 
+        self.register_buffer(
+            "sigma",torch.tensor(1.0)
+        )
         # self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
         self.energy_weight = torch.tensor(energy_weight, dtype=torch.get_default_dtype())
         self.classifier_weight = torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
         self.neg_z_penalty = neg_z_penalty
- 
+        self.use_uncertainty = use_uncertainty
+        if use_uncertainty:
+            self.log_sigma_reg = torch.nn.Parameter(
+                torch.tensor(init_log_sigma_reg), dtype = torch.get_default_dtype()
+            )
+            self.log_sigma_cls = torch.nn.Parameter(
+                torch.tensor(init_log_sigma_cls), dtype = torch.get_default_dtype()
+            )
+        else:
+            # no learnable uncertainty; static weights only
+            self.register_parameter("log_sigma_reg", None)
+            self.register_parameter("log_sigma_cls", None)
 
     def forward(self, ref, pred, ddp=None) -> torch.Tensor:
         # --- classifier ---
-        loss_classifier = weighted_classifier_loss(ref= ref, pred = pred, ddp=ddp, pos_weight=self.pos_weight)
+        loss_classifier = weighted_classifier_loss(
+            ref = ref,
+            pred = pred, 
+            ddp=ddp, 
+            pos_weight=self.pos_weight
+        )
         # --- regression ---
         # loss_regressor = loss_regressor_log_hard_gated(
         #     ref = ref,
@@ -893,7 +924,21 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         logging.info(f'loss regressor {loss_regressor}')
         logging.info(f'loss classifier {loss_classifier}')
 
-        return self.energy_weight * loss_regressor + self.classifier_weight * loss_classifier
+        if self.use_uncertainty:
+            # 1/(2σ^2) * L + log σ
+            loss_reg =  0.5 * torch.exp(-2*self.log_sigma_reg) * loss_regressor + self.log_sigma_reg
+            loss_cls = 0.5 * torch.exp(-2*self.log_sigma_cls) * loss_classifier + self.log_sigma_cls
+            total_loss = loss_reg + loss_cls
+            with torch.no_grad():
+                # were storing the sigmas as logs so need to do torch.exp()
+                sigma_reg = self.log_sigma_reg.exp().item()
+                sigma_cls = self.log_sigma_cls.exp().item()
+                logging.info(f"sigma_reg={sigma_reg:.3f} sigma_cls={sigma_cls:.3f}")
+
+        else:
+            total_loss = self.energy_weight * loss_regressor + self.classifier_weight * loss_classifier
+
+        return total_loss
     
     def update_log_space(self, beta=None, mu=None, sigma=None):
         if beta is not None:  self.beta.fill_(float(beta))
