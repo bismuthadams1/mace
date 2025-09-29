@@ -25,6 +25,7 @@ from .blocks import (
     RealAgnosticResidualNonLinearInteractionBlock,
     ScaleShiftBlock,
     TransformerGraphReadoutBlock,
+    LearnableScaleShift,
 )
 from .loss import (
     DipoleSingleLoss,
@@ -136,4 +137,5 @@ __all__ = [
     "compute_fixed_charge_dipole",
     "GatedCouplingPredictor",
     "ScaleShiftGatedCouplingPredictor",
+    "LearnableScaleShift",
 ]
