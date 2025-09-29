@@ -725,7 +725,7 @@ def run(args) -> None:
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
     #calculate the correct beta, mu, sigma values for the log space
-    if args.model == 'GatedCouplingPredictor' :
+    if args.model == 'GatedCouplingPredictor' or args.model == 'ScaleShiftGatedCouplingPredictor':
         with torch.no_grad():
             y_list, l_list = [], []
             for d in train_set:  # <-- the actual train split you feed the loader
