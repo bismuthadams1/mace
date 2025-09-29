@@ -1628,8 +1628,98 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         self.scale_shift = ScaleShiftBlock(
             scale=atomic_inter_scale, shift=atomic_inter_shift
         )
-    ...
 
+    def forward(
+        self,
+        data, 
+        training = False, 
+        compute_force = False, 
+        compute_virials = False, 
+        compute_stress = False, 
+        compute_displacement = False, 
+        compute_edge_forces = False, 
+        compute_atomic_stresses = False, 
+        compute_coupling_class = False):
+        ctx = prepare_graph(
+            data,
+            compute_virials=compute_virials,
+            compute_stress=compute_stress,
+            compute_displacement=compute_displacement,
+            lammps_mliap=False,
+        )
+
+        is_lammps = ctx.is_lammps
+        num_atoms_arange = ctx.num_atoms_arange
+        num_graphs = ctx.num_graphs
+        displacement = ctx.displacement
+        positions = ctx.positions
+        vectors = ctx.vectors
+        lengths = ctx.lengths
+        cell = ctx.cell
+        node_heads = ctx.node_heads
+        interaction_kwargs = ctx.interaction_kwargs
+        lammps_natoms = interaction_kwargs.lammps_natoms
+        lammps_class = interaction_kwargs.lammps_class
+        # Setup
+        data["node_attrs"].requires_grad_(True)
+        data["positions"].requires_grad_(True)
+        num_graphs = data["ptr"].numel() - 1
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        vectors, lengths = get_edge_vectors_and_lengths(
+            positions=data["positions"],
+            edge_index=data["edge_index"],
+            shifts=data["shifts"],
+        )
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+
+        node_outs_total = []
+        readouts_per_layer = []
+        node_feats_list: List[torch.Tensor] = []
+        for interaction, product, readout in zip(
+            self.interactions, self.products, self.readouts
+        ):
+            node_feats, sc = interaction(
+                node_attrs=data["node_attrs"],
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff, 
+            )
+            node_feats = product(
+                node_feats=node_feats,
+                sc=sc,
+                node_attrs=data["node_attrs"],
+            )
+            node_feats_list.append(node_feats)
+
+            node_out = readout(node_feats, node_heads).squeeze(-1)
+            node_outs_total.append(node_out)
+
+            B = data["ptr"].numel() - 1
+            graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
+            readouts_per_layer.append(graph_out)
+
+        H_layers = torch.stack(readouts_per_layer, dim=-1)
+        logit_layers = H_layers[:, 0, :]
+        coupling_layers = H_layers[:, 1, :]
+        total_logit_layers = torch.sum(logit_layers, dim=-1)
+        total_logic_scale_shift = self.scale_shift(total_logit_layers, node_heads)
+        total_coupling_layers = torch.sum(coupling_layers, dim=-1)
+        total_coupling_scale_shift = self.scale_shift(total_coupling_layers, node_heads)
+
+        output = {
+            "coupling_class": total_logic_scale_shift,  # [n_nodes, n_classes]
+            "effective_coupling": total_coupling_scale_shift 
+        }
+
+        return output
+    
 @compile_mode("script")
 class CouplingPredictor(torch.nn.Module):
 

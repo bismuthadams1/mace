@@ -780,6 +780,7 @@ def run(args) -> None:
                 beta = pos.median().clamp_min(eps)
             else:
                 beta = y.median().clamp_min(eps)
+
             z_raw = torch.log1p(y/beta)
             mu    = z_raw.median()
             mad   = (z_raw - mu).abs().median()
