@@ -1625,8 +1625,11 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.scale_shift = ScaleShiftBlock(
-            scale=atomic_inter_scale, shift=atomic_inter_shift
+        self.scale_shift_regress = ScaleShiftBlock(
+            scale=1.0, shift=0.0
+        )
+        self.scale_shift_class = ScaleShiftBlock(
+            scale=1.0, shift=0.0
         )
 
     def forward(
@@ -1709,7 +1712,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         logit_layers = H_layers[:, 0, :]
         coupling_layers = H_layers[:, 1, :]
         total_logit_layers = torch.sum(logit_layers, dim=-1)
-        total_logic_scale_shift = self.scale_shift(total_logit_layers, node_heads)
+        total_logic_scale_shift = self.scale_shift_regress(total_logit_layers, node_heads)
         total_coupling_layers = torch.sum(coupling_layers, dim=-1)
         total_coupling_scale_shift = self.scale_shift(total_coupling_layers, node_heads)
 

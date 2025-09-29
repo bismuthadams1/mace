@@ -1407,6 +1407,44 @@ class ScaleShiftBlock(torch.nn.Module):
         )
         return f"{self.__class__.__name__}(scale={formatted_scale}, shift={formatted_shift})"
 
+@compile_mode("script")
+class LearnableScaleShift(torch.nn.Module):
+    def __init__(
+            self,
+            num_heads: int = 1,
+            init_scale: float = 1.0,
+            init_shift: float = 0.0,
+            learn_shift: bool = True
+    ):
+        super().__init__()
+        #keep it in log scale so its greater than 0
+        self.log_scale = torch.nn.Parameter(
+            torch.full((num_heads,)), float(torch.log(torch.tensor(init_scale)))
+        )
+
+        if learn_shift:
+            self.shift = torch.nn.Parameter(
+                torch.full((num_heads,)), float(init_shift)
+            )
+        # don't learn shift for classification logits. 
+        else:
+            self.register_buffer("shift", torch.zeros(num_heads, dtype=torch.get_default_dtype()))
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            head: torch.Tensor
+    ) -> torch.Tensor:
+        scale = torch.exp(self.log_scale)
+        return scale[head] * x + self.shift[head]
+    
+    def scales(self):
+        return torch.exp(self.log_scale).detach()
+    
+    def shifts(self):
+        return self.shift.detach()
+
+
 
 class InvariantizeL0fromL1(torch.nn.Module):
     """
