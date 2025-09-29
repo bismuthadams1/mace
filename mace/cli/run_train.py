@@ -826,6 +826,21 @@ def run(args) -> None:
     param_options = get_params_options(args, model)
     optimizer: torch.optim.Optimizer
     optimizer = get_optimizer(args, param_options)
+    if args.model == "ScaleShiftGatedCouplingPredictor" or args.model == "GatedCouplingPredictor":
+        loss_params = [p for p in loss_fn.parameters() if p.requires_grad]
+
+        if loss_params:  # avoid adding an empty group
+            already = {id(p) for g in optimizer.param_groups for p in g["params"]}
+            loss_params = [p for p in loss_params if id(p) not in already]
+
+            if loss_params:
+                base_lr = optimizer.param_groups[0].get("lr", 1e-3)
+                optimizer.add_param_group({
+                    "name": "sigma_loss",
+                    "params": loss_params,
+                    "lr": base_lr,          
+                    "weight_decay": 0.0,    
+            })
     if args.device == "xpu":
         logging.info("Optimzing model and optimzier for XPU")
         model, optimizer = ipex.optimize(model, optimizer=optimizer)

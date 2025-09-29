@@ -444,30 +444,9 @@ def take_step(
 
         total_norm = total_norm**0.5
         logging.info(f"  ⎮⎮grad⎮⎮ = {total_norm:.6f}")
-        #-----------------------------------------
-        step = 0
-        #-------------------monitor the activation
-        # logging.info("LinearReadoutBlock grad norm:", model.readouts[0].linear.weight.grad.norm())
 
         grad = getattr(getattr(model, "_debug_inter_e", None), "grad", None)
         logging.info("inter_e grad norm: %s", "None" if grad is None else f"{grad.norm().item():.3e}")
-
-        # for name, param in model.named_parameters():
-        #     if param.grad is not None:
-        #         writer.add_scalar(f"grad/{name}", param.grad.norm(), step)
-        #     writer.add_scalar("loss/train", loss, step)
-        #     step += 1
-        # tapped.step()  # Call the step method to print the stats
-        # batch_signal = batch.to_dict()
-        # num_graphs = batch["ptr"].numel() - 1
-        # with torch.no_grad():
-        #     node_out = model.readouts[0](model.node_feats_total[-1])   # [n_nodes, 16]
-        #     logging.info("node_out abs-mean :",  node_out.abs().mean())
-        #     logging.info("mean/std/sum abs-means:",
-        #         scatter_mean(node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean(),
-        #         scatter_std (node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean(),
-        #         scatter_sum (node_out, batch_signal["batch"].unsqueeze(-1)  , dim=0, dim_size=num_graphs).abs().mean())
-
 
         if max_grad_norm is not None:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)

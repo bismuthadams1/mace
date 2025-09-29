@@ -848,7 +848,6 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
                 beta_scale: float = 1.0,
                 energy_weight: float = 1.0,
                 classifier_weight: float = 1.0,
-                neg_z_penalty: float = 1e-3,
                 use_uncertainty: bool = True,
                 init_log_sigma_reg: float = 0.0,
                 init_log_sigma_cls: float = 0.0,
@@ -869,20 +868,16 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         self.register_buffer(
             "beta",  torch.tensor(beta_scale, dtype=torch.get_default_dtype())
         )
-        self.register_buffer(
-            "pos_weight_buf", torch.tensor(float(pos_weight), dtype=torch.get_default_dtype())    
-        )
         # self.register_buffer("beta", torch.tensor(1.0))
         self.register_buffer(
-            "mu",   torch.tensor(0.0)
+            "mu",   torch.tensor(0.0, dtype = torch.get_default_dtype())
         ) 
         self.register_buffer(
-            "sigma",torch.tensor(1.0)
+            "sigma",torch.tensor(1.0,  dtype = torch.get_default_dtype())
         )
         # self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
-        self.energy_weight = torch.tensor(energy_weight, dtype=torch.get_default_dtype())
+        self.energy_weight = torch.tensor(energy_weight, dtype=torch.xf())
         self.classifier_weight = torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
-        self.neg_z_penalty = neg_z_penalty
         self.use_uncertainty = use_uncertainty
         if use_uncertainty:
             self.log_sigma_reg = torch.nn.Parameter(
@@ -946,14 +941,15 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         if sigma is not None: self.sigma.fill_(float(sigma))
 
     def set_pos_weight(self, pos_weight: float):
-        self.pos_weight_buf.fill_(float(pos_weight))
+        self.pos_weight.fill_(float(pos_weight))
 
     def to_linear_space(self, t_hat):
         return self.beta * (torch.expm1(self.sigma * t_hat + self.mu))
 
-    def __repr__(self):  #printable representation of an object
+    def __repr__(self):
         return (f"{self.__class__.__name__}("
                 f"pos_weight={self.pos_weight.item():.3f}, "
                 f"beta={self.beta.item():.3f}, mu={self.mu.item():.3f}, sigma={self.sigma.item():.3f}, "
-                f"coupling_weight={self.energy_weight:.3f}, "
-                f"classifier_weight={self.classifier_weight:.3f})")
+                f"energy_weight={self.energy_weight:.3f}, "
+                f"classifier_weight={self.classifier_weight:.3f}, "
+                f"use_uncertainty={self.use_uncertainty})")
