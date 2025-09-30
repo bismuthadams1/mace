@@ -876,7 +876,7 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
             "sigma",torch.tensor(1.0,  dtype = torch.get_default_dtype())
         )
         # self.beta_scale = torch.tensor(beta_scale, dtype=torch.get_default_dtype())
-        self.energy_weight = torch.tensor(energy_weight, dtype=torch.xf())
+        self.energy_weight = torch.tensor(energy_weight, dtype=torch.get_default_dtype())
         self.classifier_weight = torch.tensor(classifier_weight, dtype=torch.get_default_dtype())
         self.use_uncertainty = use_uncertainty
         if use_uncertainty:
