@@ -1483,7 +1483,7 @@ class InvariantizeL0fromL1(torch.nn.Module):
 class TransformerGraphReadoutBlock(torch.nn.Module):
     def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
         super().__init__()
-       input_dim = self.readouts[0].irreps_out.num_irreps
+        input_dim = self.readouts[0].irreps_out.num_irreps
 
         self.mom_mapper = torch.nn.Sequential(
             torch.nn.Linear(3, 1),
@@ -1493,11 +1493,11 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         mid_dim = MLP_irreps.num_irreps
         self.mom_attn = torch.nn.MultiheadAttention(
-            irreps_in, 8, 0.05, batch_first=True
+            input_dim, 8, 0.05, batch_first=True
         )
 
         self.fc = torch.nn.Sequential(
-            torch.nn.Linear(irreps_in, mid_dim),
+            torch.nn.Linear(input_dim, mid_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 2),
