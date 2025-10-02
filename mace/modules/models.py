@@ -1746,51 +1746,52 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         edge_feats, cutoff = self.radial_embedding(
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
+        node_outs_total_class = []
+        node_outs_total_reg   = []
+        readouts_per_layer_class = []
+        readouts_per_layer_reg   = []
 
-        node_outs_total = []
-        readouts_per_layer = []
-        node_feats_list: List[torch.Tensor] = []
-        for interaction, product, readout in zip(
-            self.interactions, self.products, self.readouts
-        ):
-            node_feats, sc = interaction(
+        for inter, prod, ro_cls, ro_reg in zip(
+                self.interactions, self.products,
+                self.readouts_classifier, self.readouts_regressor):
+            node_feats, sc = inter(
                 node_attrs=data["node_attrs"],
                 node_feats=node_feats,
                 edge_attrs=edge_attrs,
                 edge_feats=edge_feats,
                 edge_index=data["edge_index"],
-                cutoff=cutoff, 
+                cutoff=cutoff,
             )
-            node_feats = product(
+            node_feats = prod(
                 node_feats=node_feats,
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
-            node_feats_list.append(node_feats)
 
-            node_out = readout(node_feats, node_heads).squeeze(-1)
-            node_outs_total.append(node_out)
+            node_cls = ro_cls(node_feats).squeeze(-1)   # [N]
+            node_reg = ro_reg(node_feats).squeeze(-1)   # [N]
+            node_outs_total_class.append(node_cls)
+            node_outs_total_reg.append(node_reg)
 
             B = data["ptr"].numel() - 1
-            graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
-            readouts_per_layer.append(graph_out)
+            g_cls = scatter_mean(node_cls, data["batch"], dim=0, dim_size=B)  # [B]
+            g_reg = scatter_mean(node_reg, data["batch"], dim=0, dim_size=B)  # [B]
+            readouts_per_layer_class.append(g_cls)
+            readouts_per_layer_reg.append(g_reg)
 
-        H_layers = torch.stack(readouts_per_layer, dim=-1)
-        logit_layers = H_layers[:, 0, :]
-        coupling_layers = H_layers[:, 1, :]
+        H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L]
+        H_reg = torch.stack(readouts_per_layer_reg,   dim=-1)   # [B, L]
 
-        B = total_logit_layers.shape[0]
-        head_idx = torch.zeros(B, dtype=torch.long, device=total_logit_layers.device)
+        total_logits   = H_cls.sum(dim=-1)   # [B]
+        total_regress  = H_reg.sum(dim=-1)   # [B]
 
-        total_logit_layers = torch.sum(logit_layers, dim=-1)
-        total_logic_scale_shift = self.scale_shift_class(total_logit_layers, head_idx)
-
-        total_coupling_layers = torch.sum(coupling_layers, dim=-1)
-        total_coupling_scale_shift = self.scale_shift_regress(total_coupling_layers, head_idx)
+        head_idx = torch.zeros(total_logits.shape[0], dtype=torch.long, device=total_logits.device)
+        logits_hat  = self.scale_shift_class(total_logits,  head_idx)   # [B]
+        regress_hat = self.scale_shift_regress(total_regress, head_idx) # [B]
 
         output = {
-            "coupling_class": total_logic_scale_shift,  # [n_nodes, n_classes]
-            "effective_coupling": total_coupling_scale_shift 
+            "coupling_class":    logits_hat,    # [B] logits (post temperature/scale)
+            "effective_coupling": regress_hat,  # [B] regression (affine-calibrated)
         }
 
         return output
