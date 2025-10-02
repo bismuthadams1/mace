@@ -1489,14 +1489,10 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             self.readouts_classifier = torch.nn.ModuleList()
-            # self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
-            self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
+            self.readouts_classifier.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
             self.readouts_regressor = torch.nn.ModuleList()
-            self.readouts_regressor.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
-
-            # self.transformers = torch.nn.ModuleList()
-            # self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
+            self.readouts_regressor.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
             self.readout_cls = readout_cls
 
@@ -1540,28 +1536,39 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
                 if i == num_interactions - 2:
                     # last layer non-linear readout
-                    ro_cls = self.readout_cls(
-                        hidden_irreps, (1*MLP_irreps).simplify(),
-                        gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    # ro_cls = self.readout_cls(
+                    #     hidden_irreps, (1*MLP_irreps).simplify(),
+                    #     gate=torch.nn.functional.silu,
+                    #     irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    # )
+                    # ro_reg = self.readout_cls(
+                    #     hidden_irreps, (1*MLP_irreps).simplify(),
+                    #     gate=torch.nn.functional.silu,
+                    #     irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    # )
+                    ro_cls = TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e"),
                     )
-                    ro_reg = self.readout_cls(
-                        hidden_irreps, (1*MLP_irreps).simplify(),
-                        gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    ro_reg = TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e"),
                     )
                 else:
-                    ro_cls = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
-                    ro_reg = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
-
+                    # ro_cls = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
+                    # ro_reg = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
+                    ro_cls =  TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e"),
+                    )
+                    ro_reg = TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e")
+                    )
 
                 self.readouts.append(
                     TwinReadouts(ro_cls, ro_reg)
                 )
-#                     self.transformers.append(
-#                         irreps_in= hidden_irreps,
-#                         MLP_irreps=  o3.Irreps("2x0e"),
-# =                    )
 
     def forward(
         self,
@@ -1626,7 +1633,31 @@ class GatedCouplingPredictor(torch.nn.Module):
             node_out_class = readout_class(node_feats).squeeze(-1)
             node_outs_total_class.append(node_out_class)
 
-            graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
+            # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
+            inter_e = scatter_mean(
+                src=node_out_class,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
+            inter_std = scatter_std(
+                src=node_out_class,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
+            inter_sum = scatter_sum(
+                src=node_out_class,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
+
+            inter_e = inter_e[:, :, None]
+            inter_std = inter_std[:, :, None]
+            inter_sum = inter_sum[:, :, None]
+
+
 
             # Run regressor HEADS
 

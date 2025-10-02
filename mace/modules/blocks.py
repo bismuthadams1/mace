@@ -267,41 +267,6 @@ class NonLinearDipoleReadoutBlock(torch.nn.Module):
         x = self.equivariant_nonlin(self.linear_1(x))
         return self.linear_2(x)  # [n_nodes, 1]
 
-    
-# @compile_mode("script")
-# class GraphLevelReadoutBlock(torch.nn.Module):
-#     def __init__(self, irreps_in: o3.Irreps):
-#         super().__init__()
-#         # we want a single invariant scalar out for the whole graph
-#         self.irreps_out = o3.Irreps("1x0e")
-#         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
-
-#     def forward(self, node_feats: torch.Tensor) -> torch.Tensor:
-#         # node_feats: [batch, n_nodes, irreps_in.dim]
-#         # 1) pool across the nodes → graph_feats: [batch, irreps_in.dim]
-#         graph_feats = node_feats.sum(dim=-2)
-#         # 2) linear map down to [batch, 1]
-#         return self.linear(graph_feats)
-
-# @compile_mode("script")
-# class LinearCouplingReadoutBlock(torch.nn.Module):
-#     def __init__(
-#             self,
-#             irreps_in: o3.Irreps,
-#             cueq_config: Optional[CuEquivarianceConfig] = None,
-#             oeq_config: Optional[OEQConfig] = None,  # pylint: disable=unused-argument
-#             ):
-#         super().__init__()
-#         self.irreps_out = o3.Irreps("1x1e") #1x0e when you need an invariant scalar output not o which is a scaler than gets a -1 under conversion
-#         self.linear = Linear(irreps_in=irreps_in, irreps_out=self.irreps_out)
-
-#     def forward(self, x: torch.Tensor) -> torch.Tensor:
-#         scalars = self.linear(x)
-#         # graph_feats = scalars.sum(dim=-2)  #use def __add__(self, irreps) -> "Irreps":
-#         # logit = self.linear(graph_feats)
-#         return scalars #torch.sigmoid(logit) #probability of coupling
-
-
 @compile_mode("script")
 class NonLinearCouplingReadoutBlock(torch.nn.Module):
     def __init__(
@@ -1500,29 +1465,21 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Linear(input_dim, mid_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
-            torch.nn.Linear(mid_dim, 2),
+            torch.nn.Linear(mid_dim, 1),
         )
-    def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
-        # Step A: invariantize to pure scalars
-        h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)
+    def forward(self, x):  
+        
+        inter_e, inter_std, inter_sum = x
+        momentums = self.mom_mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])
+        att_momentums, _ = self.mom_attn(momentums, momentums, momentums)
+        momentums = momentums + att_momentums
+        momentums = momentums[:, 0, :]
+        output = self.fc(momentums)
+        
+        return output
 
-        # Optional: if you currently have just one token T=1, attention degenerates.
-        # Consider creating a few tokens (sum/mean/std per group, ring tokens, etc.).
-        # h = self.pool_norm(h)
-        h = self.mapper(h)                       # [B, T, 128]
 
-        attn_out, _ = self.attn(h, h, h)         # [B, T, 128]
-        h = h + attn_out
-
-        # If T > 1, do attention pooling; if T == 1, just squeeze:
-        if h.size(1) > 1:
-            # simple CLS-free pooling: mean over tokens (or use a learned query)
-            h = h.mean(dim=1)
-        else:
-            h = h[:, 0, :]
-
-        logits = self.fc(h).squeeze(-1)          # [B]
-        return logits
 
 
 class ParallelSkipRegressorHead(torch.nn.Module):
