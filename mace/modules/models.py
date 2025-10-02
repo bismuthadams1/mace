@@ -1489,13 +1489,13 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.readouts_classifier = torch.nn.ModuleList()
             # self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
-            self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
+            # self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
 
             self.readouts_regressor = torch.nn.ModuleList()
             self.readouts_regressor.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
 
             self.transformers = torch.nn.ModuleList()
-            # self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
+            self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
             self.readout_cls = readout_cls
 
@@ -1537,7 +1537,7 @@ class GatedCouplingPredictor(torch.nn.Module):
                             hidden_irreps_out,
                             (1 * MLP_irreps).simplify(), #2 Heads
                             gate = torch.nn.functional.silu, #Hard code SiLU gate,
-                            irrep_out = hidden_irreps,
+                            irrep_out = o3.Irreps("1x0e"),
                             num_heads = 1,
                         )
                     )
@@ -1546,7 +1546,7 @@ class GatedCouplingPredictor(torch.nn.Module):
                             hidden_irreps_out,
                             (1 * MLP_irreps).simplify(), #2 Heads
                             gate = torch.nn.functional.silu, #Hard code SiLU gate,
-                            irrep_out = hidden_irreps,
+                            irrep_out = o3.Irreps("1x0e"),
                             num_heads = 1,
                         )
                     )
@@ -1603,11 +1603,13 @@ class GatedCouplingPredictor(torch.nn.Module):
         edge_feats, cutoff = self.radial_embedding(
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
+        node_outs_total_class = []
+        node_outs_total_regressor = []
 
-        node_outs_total = []
-        readouts_per_layer = []
-        for interaction, product, readout in zip(
-            self.interactions, self.products, self.readouts
+        readouts_per_layer_class = []
+        readouts_per_layer_regressor = []
+        for interaction, product, readout_class, readout_regressor in zip(
+            self.interactions, self.products, self.readouts_classifier, self.readouts_regressor
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1623,11 +1625,21 @@ class GatedCouplingPredictor(torch.nn.Module):
                 node_attrs=data["node_attrs"],
             )
 
-            node_out = readout(node_feats).squeeze(-1)
-            node_outs_total.append(node_out)
-
             B = data["ptr"].numel() - 1
-            graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
+
+            # Run classifier HEADS
+
+            node_out_class = readout_class(node_feats).squeeze(-1)
+            node_outs_total_class.append(node_out_class)
+
+            graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
+
+            # Run regressor HEADS
+
+            node_out_regress = readout_regressor(node_feats).squeeze(-1)
+            node_outs_total_regressor.append(node_out_regress)
+
+            graph_out_regress = scatter_mean(node_out_regress, data['batch'], dim=0, dim_size=B)  # [B,1]
 
             # inter_e = scatter_mean(
             #     src=node_out,
@@ -1653,13 +1665,15 @@ class GatedCouplingPredictor(torch.nn.Module):
             # inter_sum = inter_sum[:, :, None]
 
 
-            readouts_per_layer.append(graph_out)
+            readouts_per_layer_class.append(graph_out_class)
+            readouts_per_layer_regressor.append(graph_out_regress)
 
-        H_layers = torch.stack(readouts_per_layer, dim=-1)
-        logit_layers = H_layers[:, 0, :]
-        coupling_layers = H_layers[:, 1, :]
-        total_logit_layers = torch.sum(logit_layers, dim=-1)
-        total_coupling_layers = torch.sum(coupling_layers, dim=-1)
+        H_layers_cls = torch.stack(readouts_per_layer_class, dim=-1)
+        H_layers_regress = torch.stack(readouts_per_layer_regressor, dim=-1)
+        # logit_layers = H_layers_cls
+        # coupling_layers = H_layers[:, 1, :]
+        total_logit_layers = torch.sum(H_layers_cls, dim=-1)
+        total_coupling_layers = torch.sum(H_layers_regress, dim=-1)
 
         output = {
             "coupling_class": total_logit_layers,  # [n_nodes, n_classes]
