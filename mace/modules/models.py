@@ -1489,7 +1489,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.readouts_classifier = torch.nn.ModuleList()
             # self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
-            # self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
+            self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
 
             self.readouts_regressor = torch.nn.ModuleList()
             self.readouts_regressor.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
