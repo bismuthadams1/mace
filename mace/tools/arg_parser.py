@@ -134,6 +134,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "AtomicDipolesMACE",
             "EnergyDipolesMACE",
             "GatedCouplingPredictor",
+            "ScaleShiftGatedCouplingPredictor",
             "CouplingClassifier",
             "CouplingPredictor",
         ],

@@ -496,6 +496,16 @@ def run(args) -> None:
         args.compute_stress = False
         args.loss = "gated_effective_coupling_loss"
         args.error_table = "GatedEffectiveCouplingLoss"
+    elif args.model == "ScaleShiftGatedCouplingPredictor":
+        atomic_energies = None
+        dipole_only = None
+        args.compute_dipole = False
+        args.compute_energy = False
+        args.compute_forces = False
+        args.compute_virials = False
+        args.compute_stress = False
+        args.loss = "gated_effective_coupling_loss"
+        args.error_table = "GatedEffectiveCouplingLoss"
     else:
         dipole_only = False
         if args.model == "EnergyDipolesMACE":
@@ -715,7 +725,7 @@ def run(args) -> None:
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
     #calculate the correct beta, mu, sigma values for the log space
-    if args.model == 'GatedCouplingPredictor' :
+    if args.model == 'GatedCouplingPredictor' or args.model == 'ScaleShiftGatedCouplingPredictor':
         with torch.no_grad():
             y_list, l_list = [], []
             for d in train_set:  # <-- the actual train split you feed the loader
@@ -770,6 +780,7 @@ def run(args) -> None:
                 beta = pos.median().clamp_min(eps)
             else:
                 beta = y.median().clamp_min(eps)
+
             z_raw = torch.log1p(y/beta)
             mu    = z_raw.median()
             mad   = (z_raw - mu).abs().median()
@@ -785,12 +796,12 @@ def run(args) -> None:
     model, output_args = configure_model(args, train_loader, atomic_energies, model_foundation, heads, z_table, head_configs)
     model.to(device)
 
-    if args.model == "GatedCouplingPredictor":
-        with torch.no_grad():
-            # last linear producing z
-            last = model.regressor.mapper[-1]  # your final Linear producing z
-            torch.nn.init.zeros_(last.weight)
-            last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
+    # if args.model == "GatedCouplingPredictor":
+    #     with torch.no_grad():
+    #         # last linear producing z
+    #         last = model.regressor.mapper[-1]  # your final Linear producing z
+    #         torch.nn.init.zeros_(last.weight)
+    #         last.bias.fill_(math.log1p(1.0))     # = log(2) ≈ 0.693147
 
     logging.debug(model)
     logging.info(f"Total number of parameters: {tools.count_parameters(model)}")
@@ -815,6 +826,21 @@ def run(args) -> None:
     param_options = get_params_options(args, model)
     optimizer: torch.optim.Optimizer
     optimizer = get_optimizer(args, param_options)
+    if args.model == "ScaleShiftGatedCouplingPredictor" or args.model == "GatedCouplingPredictor":
+        loss_params = [p for p in loss_fn.parameters() if p.requires_grad]
+
+        if loss_params:  # avoid adding an empty group
+            already = {id(p) for g in optimizer.param_groups for p in g["params"]}
+            loss_params = [p for p in loss_params if id(p) not in already]
+
+            if loss_params:
+                base_lr = optimizer.param_groups[0].get("lr", 1e-3)
+                optimizer.add_param_group({
+                    "name": "sigma_loss",
+                    "params": loss_params,
+                    "lr": base_lr,          
+                    "weight_decay": 0.0,    
+            })
     if args.device == "xpu":
         logging.info("Optimzing model and optimzier for XPU")
         model, optimizer = ipex.optimize(model, optimizer=optimizer)

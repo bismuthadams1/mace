@@ -1407,6 +1407,44 @@ class ScaleShiftBlock(torch.nn.Module):
         )
         return f"{self.__class__.__name__}(scale={formatted_scale}, shift={formatted_shift})"
 
+@compile_mode("script")
+class LearnableScaleShift(torch.nn.Module):
+    def __init__(
+            self,
+            num_heads: int = 1,
+            init_scale: float = 1.0,
+            init_shift: float = 0.0,
+            learn_shift: bool = True
+    ):
+        super().__init__()
+        #keep it in log scale so its greater than 0
+        self.log_scale = torch.nn.Parameter(
+            torch.full((num_heads,)), float(torch.log(torch.tensor(init_scale)))
+        )
+
+        if learn_shift:
+            self.shift = torch.nn.Parameter(
+                torch.full((num_heads,)), float(init_shift)
+            )
+        # don't learn shift for classification logits. 
+        else:
+            self.register_buffer("shift", torch.zeros(num_heads, dtype=torch.get_default_dtype()))
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            head: torch.Tensor
+    ) -> torch.Tensor:
+        scale = torch.exp(self.log_scale)
+        return scale[head] * x + self.shift[head]
+    
+    def scales(self):
+        return torch.exp(self.log_scale).detach()
+    
+    def shifts(self):
+        return self.shift.detach()
+
+
 
 class InvariantizeL0fromL1(torch.nn.Module):
     """
@@ -1443,35 +1481,27 @@ class InvariantizeL0fromL1(torch.nn.Module):
 
 @compile_mode("script")
 class TransformerGraphReadoutBlock(torch.nn.Module):
-    def __init__(self, irreps_out: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
+    def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
         super().__init__()
-        # 1) Map mixed irreps → enriched scalars (0e)
-        self.invariantizer = InvariantizeL0fromL1(
-            irreps_in=irreps_out,            # e.g., "16x0e + 16x1e"
-            num_quad_pairs=16,
-            out_dim=128                      # produces [B, T, 128] scalars
-        )
+        input_dim = irreps_in.num_irreps
 
-        # 2) Scalar-only stack
-        # self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
-
-        self.mapper = torch.nn.Sequential( #Gradient dies here
-            torch.nn.Linear(128, 128),
+        self.mom_mapper = torch.nn.Sequential(
+            torch.nn.Linear(3, 1),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
         )
 
-        d_model = 128
-        self.attn = torch.nn.MultiheadAttention(d_model, num_heads=8, dropout=0.05, batch_first=True)
+        mid_dim = MLP_irreps.num_irreps
+        self.mom_attn = torch.nn.MultiheadAttention(
+            input_dim, 8, 0.05, batch_first=True
+        )
 
-        mid_dim = MLP_irreps.num_irreps  # your existing choice for hidden width
         self.fc = torch.nn.Sequential(
-            torch.nn.Linear(d_model, mid_dim),
+            torch.nn.Linear(input_dim, mid_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
-            torch.nn.Linear(mid_dim, 1),
+            torch.nn.Linear(mid_dim, 2),
         )
-
     def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
         # Step A: invariantize to pure scalars
         h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)
@@ -1515,3 +1545,14 @@ class ParallelSkipRegressorHead(torch.nn.Module):
 
     def forward(self, x):  # [B, D]
         return (self.skip(x) + self.mapper(self.ln(x))).squeeze(-1)
+
+@compile_mode("script")
+class TwinReadouts(torch.nn.Module):
+    def __init__(self, cls_head: torch.nn.Module, reg_head: torch.nn.Module):
+        super().__init__()
+        self.cls = cls_head
+        self.reg = reg_head
+
+    def forward(self, x: torch.Tensor):
+        # returns per-node scalars from each head
+        return self.cls(x).squeeze(-1), self.reg(x).squeeze(-1)

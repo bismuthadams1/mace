@@ -25,6 +25,8 @@ from .blocks import (
     RealAgnosticResidualNonLinearInteractionBlock,
     ScaleShiftBlock,
     TransformerGraphReadoutBlock,
+    LearnableScaleShift,
+    TwinReadouts
 )
 from .loss import (
     DipoleSingleLoss,
@@ -80,6 +82,7 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
     "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout,
     # "EffectiveCouplingLoss": EffectiveCouplingLoss,
+    "TwinReadouts": TwinReadouts,
 }
 
 scaling_classes: Dict[str, Callable] = {
@@ -135,4 +138,7 @@ __all__ = [
     "compute_statistics",
     "compute_fixed_charge_dipole",
     "GatedCouplingPredictor",
+    "ScaleShiftGatedCouplingPredictor",
+    "LearnableScaleShift",
+    "TwinReadouts",
 ]
