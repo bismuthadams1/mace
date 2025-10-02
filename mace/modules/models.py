@@ -1494,8 +1494,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.readouts_regressor = torch.nn.ModuleList()
             self.readouts_regressor.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
 
-            self.transformers = torch.nn.ModuleList()
-            self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
+            # self.transformers = torch.nn.ModuleList()
+            # self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
             self.readout_cls = readout_cls
 

@@ -1483,7 +1483,7 @@ class InvariantizeL0fromL1(torch.nn.Module):
 class TransformerGraphReadoutBlock(torch.nn.Module):
     def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
         super().__init__()
-        input_dim = self.readouts[0].irreps_out.num_irreps
+        input_dim = irreps_in.num_irreps
 
         self.mom_mapper = torch.nn.Sequential(
             torch.nn.Linear(3, 1),
