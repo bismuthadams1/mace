@@ -207,7 +207,7 @@ def loss_regressor_log_hard_gated(ref, pred, beta, mu, sigma, delta=0.5, ddp=Non
 def loss_regressor_log_soft_gated(ref, pred, beta, mu, sigma, delta=0.5, ddp=None,):
     # model outputs standardized ẑ; targets are y (linear)
     zhat = pred["effective_coupling"]
-    y        = ref.effective_coupling.to(zhat).reshape_as(zhat)
+    y  = ref.effective_coupling.to(zhat).reshape_as(zhat)
     pos = ref.coupling_class.to(torch.bool).reshape_as(zhat)
     logging.info(f'positives in {pos}')
     ylog = (torch.log1p(y / zhat.new_tensor(beta))
@@ -910,7 +910,7 @@ class GatedEffectiveCouplingLoss(torch.nn.Module):
         #)
         loss_regressor = loss_regressor_log_soft_gated(
             ref = ref,
-            pred =pred,
+            pred = pred,
             beta = self.beta,
             mu = self.mu,
             sigma= self.sigma,

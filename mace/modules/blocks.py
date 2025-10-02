@@ -1481,35 +1481,26 @@ class InvariantizeL0fromL1(torch.nn.Module):
 
 @compile_mode("script")
 class TransformerGraphReadoutBlock(torch.nn.Module):
-    def __init__(self, irreps_out: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
+    def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
         super().__init__()
-        # 1) Map mixed irreps → enriched scalars (0e)
-        self.invariantizer = InvariantizeL0fromL1(
-            irreps_in=irreps_out,            # e.g., "16x0e + 16x1e"
-            num_quad_pairs=16,
-            out_dim=128                      # produces [B, T, 128] scalars
-        )
 
-        # 2) Scalar-only stack
-        # self.pool_norm = torch.nn.LayerNorm(128)  # safe now (scalars only)
-
-        self.mapper = torch.nn.Sequential( #Gradient dies here
-            torch.nn.Linear(128, 128),
+        self.mom_mapper = torch.nn.Sequential(
+            torch.nn.Linear(3, 1),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
         )
 
-        d_model = 128
-        self.attn = torch.nn.MultiheadAttention(d_model, num_heads=8, dropout=0.05, batch_first=True)
+        mid_dim = MLP_irreps.num_irreps
+        self.mom_attn = torch.nn.MultiheadAttention(
+            irreps_in, 8, 0.05, batch_first=True
+        )
 
-        mid_dim = MLP_irreps.num_irreps  # your existing choice for hidden width
         self.fc = torch.nn.Sequential(
-            torch.nn.Linear(d_model, mid_dim),
+            torch.nn.Linear(irreps_in, mid_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
-            torch.nn.Linear(mid_dim, 1),
+            torch.nn.Linear(mid_dim, 2),
         )
-
     def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
         # Step A: invariantize to pure scalars
         h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)

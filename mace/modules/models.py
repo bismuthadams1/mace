@@ -1487,9 +1487,15 @@ class GatedCouplingPredictor(torch.nn.Module):
             )
             self.products = torch.nn.ModuleList([prod])
 
-            self.readouts = torch.nn.ModuleList()
+            self.readouts_classifier = torch.nn.ModuleList()
             # self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("2x0e")))
-            self.readouts.append(LinearReadoutBlock(hidden_irreps, irrep_out = hidden_irreps))
+            self.readouts_classifier.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
+
+            self.readouts_regressor = torch.nn.ModuleList()
+            self.readouts_regressor.append(LinearReadoutBlock(hidden_irreps, irrep_out = o3.Irreps("1x0e")))
+
+            self.transformers = torch.nn.ModuleList()
+            # self.transformers.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
             self.readout_cls = readout_cls
 
@@ -1526,23 +1532,42 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
                 if i == num_interactions - 2:
                     # last layer non-linear readout
-                    self.readouts.append(
+                    self.readouts_regressor.append(
                         self.readout_cls(
                             hidden_irreps_out,
-                            (2 * MLP_irreps).simplify(), #2 Heads
+                            (1 * MLP_irreps).simplify(), #2 Heads
                             gate = torch.nn.functional.silu, #Hard code SiLU gate,
                             irrep_out = hidden_irreps,
-                            num_heads = 2,
+                            num_heads = 1,
+                        )
+                    )
+                    self.readouts_classifier.append(
+                        self.readout_cls(
+                            hidden_irreps_out,
+                            (1 * MLP_irreps).simplify(), #2 Heads
+                            gate = torch.nn.functional.silu, #Hard code SiLU gate,
+                            irrep_out = hidden_irreps,
+                            num_heads = 1,
                         )
                     )
                 else:
                     # interlayer readouts
-                    self.readouts.append(
+                    self.readouts_regressor.append(
                         LinearReadoutBlock(
                             irreps_in= hidden_irreps,
-                            irrep_out=  o3.Irreps("2x0e"),
+                            irrep_out=  o3.Irreps("1x0e"),
                         )
                     )
+                    self.readouts_classifier.append(
+                        LinearReadoutBlock(
+                            irreps_in= hidden_irreps,
+                            irrep_out=  o3.Irreps("1x0e"),
+                        )
+                    )
+#                     self.transformers.append(
+#                         irreps_in= hidden_irreps,
+#                         MLP_irreps=  o3.Irreps("2x0e"),
+# =                    )
 
     def forward(
         self,
@@ -1603,6 +1628,31 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             B = data["ptr"].numel() - 1
             graph_out = scatter_mean(node_out, data['batch'], dim=0, dim_size=B)  # [B,2]
+
+            # inter_e = scatter_mean(
+            #     src=node_out,
+            #     index=data.batch.unsqueeze(-1),
+            #     dim=0,
+            #     dim_size=data.num_graphs,
+            # )  # [n_graphs,16]
+            # inter_std = scatter_std(
+            #     src=node_out,
+            #     index=data.batch.unsqueeze(-1),
+            #     dim=0,
+            #     dim_size=data.num_graphs,
+            # )  # [n_graphs,16]
+            # inter_sum = scatter_sum(
+            #     src=node_out,
+            #     index=data.batch.unsqueeze(-1),
+            #     dim=0,
+            #     dim_size=data.num_graphs,
+            # )  # [n_graphs,16]
+
+            # inter_e = inter_e[:, :, None]
+            # inter_std = inter_std[:, :, None]
+            # inter_sum = inter_sum[:, :, None]
+
+
             readouts_per_layer.append(graph_out)
 
         H_layers = torch.stack(readouts_per_layer, dim=-1)
