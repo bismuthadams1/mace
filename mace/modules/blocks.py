@@ -1479,49 +1479,49 @@ class InvariantizeL0fromL1(torch.nn.Module):
         tp0 = self.tp(x, x)     # IrrepsArray (only 0e by construction)
         return tp0
 
-@compile_mode("script")
-class TransformerGraphReadoutBlock(torch.nn.Module):
-    def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
-        super().__init__()
+# @compile_mode("script")
+# class TransformerGraphReadoutBlock(torch.nn.Module):
+#     def __init__(self, irreps_in: o3.Irreps, MLP_irreps: o3.Irreps, cueq_config=None):
+#         super().__init__()
 
-        self.mom_mapper = torch.nn.Sequential(
-            torch.nn.Linear(3, 1),
-            torch.nn.GELU(),
-            torch.nn.Dropout(0.01),
-        )
+#         self.mom_mapper = torch.nn.Sequential(
+#             torch.nn.Linear(3, 1),
+#             torch.nn.GELU(),
+#             torch.nn.Dropout(0.01),
+#         )
 
-        mid_dim = MLP_irreps.num_irreps
-        self.mom_attn = torch.nn.MultiheadAttention(
-            irreps_in, 8, 0.05, batch_first=True
-        )
+#         mid_dim = MLP_irreps.num_irreps
+#         self.mom_attn = torch.nn.MultiheadAttention(
+#             irreps_in, 8, 0.05, batch_first=True
+#         )
 
-        self.fc = torch.nn.Sequential(
-            torch.nn.Linear(irreps_in, mid_dim),
-            torch.nn.GELU(),
-            torch.nn.Dropout(0.01),
-            torch.nn.Linear(mid_dim, 2),
-        )
-    def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
-        # Step A: invariantize to pure scalars
-        h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)
+#         self.fc = torch.nn.Sequential(
+#             torch.nn.Linear(irreps_in, mid_dim),
+#             torch.nn.GELU(),
+#             torch.nn.Dropout(0.01),
+#             torch.nn.Linear(mid_dim, 2),
+#         )
+#     def forward(self, x_irreps):  # x_irreps: IrrepsArray shaped [B, T, C] with irreps matching irreps_out
+#         # Step A: invariantize to pure scalars
+#         h = self.invariantizer(x_irreps)         # [B, T, 128] (0e only)
 
-        # Optional: if you currently have just one token T=1, attention degenerates.
-        # Consider creating a few tokens (sum/mean/std per group, ring tokens, etc.).
-        # h = self.pool_norm(h)
-        h = self.mapper(h)                       # [B, T, 128]
+#         # Optional: if you currently have just one token T=1, attention degenerates.
+#         # Consider creating a few tokens (sum/mean/std per group, ring tokens, etc.).
+#         # h = self.pool_norm(h)
+#         h = self.mapper(h)                       # [B, T, 128]
 
-        attn_out, _ = self.attn(h, h, h)         # [B, T, 128]
-        h = h + attn_out
+#         attn_out, _ = self.attn(h, h, h)         # [B, T, 128]
+#         h = h + attn_out
 
-        # If T > 1, do attention pooling; if T == 1, just squeeze:
-        if h.size(1) > 1:
-            # simple CLS-free pooling: mean over tokens (or use a learned query)
-            h = h.mean(dim=1)
-        else:
-            h = h[:, 0, :]
+#         # If T > 1, do attention pooling; if T == 1, just squeeze:
+#         if h.size(1) > 1:
+#             # simple CLS-free pooling: mean over tokens (or use a learned query)
+#             h = h.mean(dim=1)
+#         else:
+#             h = h[:, 0, :]
 
-        logits = self.fc(h).squeeze(-1)          # [B]
-        return logits
+#         logits = self.fc(h).squeeze(-1)          # [B]
+#         return logits
 
 
 class ParallelSkipRegressorHead(torch.nn.Module):
