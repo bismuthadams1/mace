@@ -1409,8 +1409,6 @@ class LearnableScaleShift(torch.nn.Module):
     def shifts(self):
         return self.shift.detach()
 
-
-
 class InvariantizeL0fromL1(torch.nn.Module):
     """
     Input: IrrepsArray with irreps_in containing some 0e and 1e channels.
@@ -1506,6 +1504,23 @@ class ParallelSkipRegressorHead(torch.nn.Module):
 @compile_mode("script")
 class TwinReadouts(torch.nn.Module):
     def __init__(self, cls_head: torch.nn.Module, reg_head: torch.nn.Module):
+        super().__init__()
+        self.cls = cls_head
+        self.reg = reg_head
+
+    def forward(self, x: torch.Tensor):
+        # returns per-node scalars from each head
+        return self.cls(x).squeeze(-1), self.reg(x).squeeze(-1)
+
+@compile_mode("script")
+class QuadReadouts(torch.nn.Module):
+    def __init__(
+            self, 
+            cls_head: torch.nn.Module, 
+            reg_head: torch.nn.Module, 
+            cls_trans: torch.nn.Module,
+            reg_trans: torch.nn.Module, 
+        ):
         super().__init__()
         self.cls = cls_head
         self.reg = reg_head

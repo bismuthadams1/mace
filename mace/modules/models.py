@@ -1494,11 +1494,9 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.readouts_regressor = torch.nn.ModuleList()
             self.readouts_regressor.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
 
-            self.readout_cls = readout_cls
+            self.readout_cls = readout_cls          
 
-            self.readouts = torch.nn.ModuleList()
-
-            self.readouts.append(
+            self.readouts['layers'].append(
             TwinReadouts(
                 self.readouts_classifier[0], self.readouts_regressor[0]
             ))
@@ -1507,6 +1505,9 @@ class GatedCouplingPredictor(torch.nn.Module):
             irreps_by_layer.append(hidden_irreps)
 
             logging.info(f"number of interactions: {num_interactions}")
+
+            layer_blocks = []
+            transformer_blocks = []
 
             for i in range(num_interactions - 1):
 
@@ -1536,39 +1537,54 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
                 if i == num_interactions - 2:
                     # last layer non-linear readout
-                    # ro_cls = self.readout_cls(
-                    #     hidden_irreps, (1*MLP_irreps).simplify(),
-                    #     gate=torch.nn.functional.silu,
-                    #     irrep_out=o3.Irreps("1x0e"), num_heads=1,
-                    # )
-                    # ro_reg = self.readout_cls(
-                    #     hidden_irreps, (1*MLP_irreps).simplify(),
-                    #     gate=torch.nn.functional.silu,
-                    #     irrep_out=o3.Irreps("1x0e"), num_heads=1,
-                    # )
-                    ro_cls = TransformerGraphReadoutBlock(
+                    ro_cls = self.readout_cls(
+                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        gate=torch.nn.functional.silu,
+                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    )
+                    ro_reg = self.readout_cls(
+                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        gate=torch.nn.functional.silu,
+                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                    )
+                    ro_cls_tf = TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
                     )
-                    ro_reg = TransformerGraphReadoutBlock(
+                    ro_reg_tf = TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
                     )
                 else:
-                    # ro_cls = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
-                    # ro_reg = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
-                    ro_cls =  TransformerGraphReadoutBlock(
+                    ro_cls = LinearReadoutBlock(
+                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                    )
+                    ro_reg = LinearReadoutBlock(
+                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                    )
+                    ro_cls_tf =  TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
                     )
-                    ro_reg = TransformerGraphReadoutBlock(
+                    ro_reg_tf = TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e")
                     )
 
-                self.readouts.append(
-                    TwinReadouts(ro_cls, ro_reg)
+                # self.readouts['layers'].append(
+                #     TwinReadouts(ro_cls, ro_reg)
+                # )
+                layer_blocks.append(
+                     TwinReadouts(ro_cls, ro_reg)
                 )
+                transformer_blocks.append(
+                    TwinReadouts(ro_cls_tf, ro_reg_tf)
+                )
+            
+            self.readouts = torch.nn.ModuleDict({
+                'layers' : layer_blocks,
+                'transformers' : transformer_blocks
+            })
 
     def forward(
         self,
@@ -1609,8 +1625,8 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         readouts_per_layer_class = []
         readouts_per_layer_regressor = []
-        for interaction, product, readout_class, readout_regressor in zip(
-            self.interactions, self.products, self.readouts_classifier, self.readouts_regressor
+        for interaction, product, readouts in zip(
+            self.interactions, self.products, self.readouts
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1630,7 +1646,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             # Run classifier HEADS
 
-            node_out_class = readout_class(node_feats).squeeze(-1)
+            node_out_class = readouts['layers'](node_feats).squeeze(-1)
             node_outs_total_class.append(node_out_class)
 
             # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
@@ -1657,41 +1673,44 @@ class GatedCouplingPredictor(torch.nn.Module):
             inter_std = inter_std[:, :, None]
             inter_sum = inter_sum[:, :, None]
 
+            x = (inter_e, inter_std, inter_sum)
 
+            readouts_per_layer_class.append(readouts['transformers'](x))
 
             # Run regressor HEADS
 
-            node_out_regress = readout_regressor(node_feats).squeeze(-1)
+            node_out_regress = readouts['layers'](node_feats).squeeze(-1)
             node_outs_total_regressor.append(node_out_regress)
 
-            graph_out_regress = scatter_mean(node_out_regress, data['batch'], dim=0, dim_size=B)  # [B,1]
+            inter_e = scatter_mean(
+                src=node_out_regress,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
+            inter_std = scatter_std(
+                src=node_out_regress,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
+            inter_sum = scatter_sum(
+                src=node_out_regress,
+                index=data.batch.unsqueeze(-1),
+                dim=0,
+                dim_size=data.num_graphs,
+            )  # [n_graphs,16]
 
-            # inter_e = scatter_mean(
-            #     src=node_out,
-            #     index=data.batch.unsqueeze(-1),
-            #     dim=0,
-            #     dim_size=data.num_graphs,
-            # )  # [n_graphs,16]
-            # inter_std = scatter_std(
-            #     src=node_out,
-            #     index=data.batch.unsqueeze(-1),
-            #     dim=0,
-            #     dim_size=data.num_graphs,
-            # )  # [n_graphs,16]
-            # inter_sum = scatter_sum(
-            #     src=node_out,
-            #     index=data.batch.unsqueeze(-1),
-            #     dim=0,
-            #     dim_size=data.num_graphs,
-            # )  # [n_graphs,16]
+            inter_e = inter_e[:, :, None]
+            inter_std = inter_std[:, :, None]
+            inter_sum = inter_sum[:, :, None]
 
-            # inter_e = inter_e[:, :, None]
-            # inter_std = inter_std[:, :, None]
-            # inter_sum = inter_sum[:, :, None]
+            x = (inter_e, inter_std, inter_sum)
 
+            readouts_per_layer_regressor.append(readouts['transformers'](x))
 
-            readouts_per_layer_class.append(graph_out_class)
-            readouts_per_layer_regressor.append(graph_out_regress)
+            # readouts_per_layer_class.append(graph_out_class)
+            # readouts_per_layer_regressor.append(graph_out_regress)
 
         H_layers_cls = torch.stack(readouts_per_layer_class, dim=-1)
         H_layers_regress = torch.stack(readouts_per_layer_regressor, dim=-1)
