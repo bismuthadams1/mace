@@ -1709,9 +1709,6 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             readouts_per_layer_regressor.append(readouts['transformers'](x))
 
-            # readouts_per_layer_class.append(graph_out_class)
-            # readouts_per_layer_regressor.append(graph_out_regress)
-
         H_layers_cls = torch.stack(readouts_per_layer_class, dim=-1)
         H_layers_regress = torch.stack(readouts_per_layer_regressor, dim=-1)
         # logit_layers = H_layers_cls
