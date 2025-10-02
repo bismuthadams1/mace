@@ -35,7 +35,8 @@ from .blocks import (
     ScalarTransformerHead,
     SimpleFeedForwardHead,
     ParallelSkipRegressorHead,
-    LearnableScaleShift
+    LearnableScaleShift,
+    TwinReadouts
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -1499,6 +1500,13 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.readout_cls = readout_cls
 
+            self.readouts = torch.nn.ModuleList()
+
+            self.readouts.append(
+            TwinReadouts(
+                self.readouts_classifier[0], self.readouts_regressor[0]
+            ))
+
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
 
@@ -1532,38 +1540,24 @@ class GatedCouplingPredictor(torch.nn.Module):
                 irreps_by_layer.append(hidden_irreps_out)
                 if i == num_interactions - 2:
                     # last layer non-linear readout
-                    self.readouts_regressor.append(
-                        self.readout_cls(
-                            hidden_irreps_out,
-                            (1 * MLP_irreps).simplify(), #2 Heads
-                            gate = torch.nn.functional.silu, #Hard code SiLU gate,
-                            irrep_out = o3.Irreps("1x0e"),
-                            num_heads = 1,
-                        )
+                    ro_cls = self.readout_cls(
+                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        gate=torch.nn.functional.silu,
+                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
                     )
-                    self.readouts_classifier.append(
-                        self.readout_cls(
-                            hidden_irreps_out,
-                            (1 * MLP_irreps).simplify(), #2 Heads
-                            gate = torch.nn.functional.silu, #Hard code SiLU gate,
-                            irrep_out = o3.Irreps("1x0e"),
-                            num_heads = 1,
-                        )
+                    ro_reg = self.readout_cls(
+                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        gate=torch.nn.functional.silu,
+                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
                     )
                 else:
-                    # interlayer readouts
-                    self.readouts_regressor.append(
-                        LinearReadoutBlock(
-                            irreps_in= hidden_irreps,
-                            irrep_out=  o3.Irreps("1x0e"),
-                        )
-                    )
-                    self.readouts_classifier.append(
-                        LinearReadoutBlock(
-                            irreps_in= hidden_irreps,
-                            irrep_out=  o3.Irreps("1x0e"),
-                        )
-                    )
+                    ro_cls = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
+                    ro_reg = LinearReadoutBlock(irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e"))
+
+
+                self.readouts.append(
+                    TwinReadouts(ro_cls, ro_reg)
+                )
 #                     self.transformers.append(
 #                         irreps_in= hidden_irreps,
 #                         MLP_irreps=  o3.Irreps("2x0e"),

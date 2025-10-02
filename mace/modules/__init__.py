@@ -26,6 +26,7 @@ from .blocks import (
     ScaleShiftBlock,
     TransformerGraphReadoutBlock,
     LearnableScaleShift,
+    TwinReadouts
 )
 from .loss import (
     DipoleSingleLoss,
@@ -81,6 +82,7 @@ readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
     "NonLinearCouplingReadoutBlock": NonLinearCouplingReadoutBlock,
     "TransformerGraphReadoutBlock": TransformerGraphReadoutBlock,  # Placeholder for transformer readout,
     # "EffectiveCouplingLoss": EffectiveCouplingLoss,
+    "TwinReadouts": TwinReadouts,
 }
 
 scaling_classes: Dict[str, Callable] = {
@@ -138,4 +140,5 @@ __all__ = [
     "GatedCouplingPredictor",
     "ScaleShiftGatedCouplingPredictor",
     "LearnableScaleShift",
+    "TwinReadouts",
 ]
