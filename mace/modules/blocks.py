@@ -1467,15 +1467,27 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         )
     def forward(self, x):  
         
-        inter_e, inter_std, inter_sum = x
-        momentums = self.mom_mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
-        momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])
-        att_momentums, _ = self.mom_attn(momentums, momentums, momentums)
-        momentums = momentums + att_momentums
-        momentums = momentums[:, 0, :]
-        output = self.fc(momentums)
+        # inter_e, inter_std, inter_sum = x
+        # momentums = self.mom_mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
+        # momentums = momentums.reshape(momentums.shape[0], 1, momentums.shape[1])
+        # att_momentums, _ = self.mom_attn(momentums, momentums, momentums)
+        # momentums = momentums + att_momentums
+        # momentums = momentums[:, 0, :]
+        # output = self.fc(momentums)
         
-        return output
+        # return output
+        B, C, _ = x.shape
+        h = self.proj(x)            # [B, C, d_model] (linear applies on last dim)
+        for layer in self.layers:
+            h = layer(h)            # [B, C, d_model]
+
+        # pool over C (channels-as-tokens) -> [B, d_model]
+        # using mean is fine too: h = h.mean(dim=1)
+        h = h.transpose(1, 2)                 # [B, d_model, C]
+        h = self.pool(h).squeeze(-1)          # [B, d_model]
+
+        out = self.fc(h)                      # [B, 1]
+        return out
 
 class ParallelSkipRegressorHead(torch.nn.Module):
     def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):

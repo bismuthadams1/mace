@@ -1686,63 +1686,31 @@ class GatedCouplingPredictor(torch.nn.Module):
             node_outs_total_class.append(node_out_class)
             node_outs_total_regressor.append(node_out_regress)
             # Node out class [NxB, 1]
-            node_out_class = node_out_class.squeeze(-1) 
-            # Node out [NxB]
+            # node_out_*: [N, 1] each from the twin readout
+            node_out_class   = node_out_class.squeeze(-1)    # [N]
+            node_out_regress = node_out_regress.squeeze(-1)  # [N]
 
-            # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
-            inter_e = scatter_mean(
-                src=node_out_class,
-                index=data['batch'], #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            )  # [N,B]
-            inter_std = scatter_std(
-                src=node_out_class,
-                index=data['batch'],  #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            ) # [N,B]
-            inter_sum = scatter_sum(
-                src=node_out_class,
-                index=data['batch'], #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            )  # [N,B]
+            B = data["ptr"].numel() - 1
+            batch_idx = data["batch"]
 
-            inter_e_cls = inter_e[:, :, None] # [N,B,1]
-            inter_std_cls = inter_std[:, :, None] # [N,B,1]
-            inter_sum_cls = inter_sum[:, :, None] # [N,B,1]
+            # ---- classifier stats (all [B]) ----
+            cls_mean = scatter_mean(node_out_class,   batch_idx, dim=0, dim_size=B)
+            cls_std  = scatter_std( node_out_class,   batch_idx, dim=0, dim_size=B)
+            cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B)
 
-            node_out_regress = node_out_regress.squeeze(-1)
+            # pack into [B, 1, 3] (C=1 channel, 3 stats)
+            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1).unsqueeze(1)  # [B, 1, 3]
 
-            inter_e = scatter_mean(
-                src=node_out_regress,
-                index=data['batch'], #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            )  # [N,B]
-            inter_std = scatter_std(
-                src=node_out_regress,
-                index=data['batch'], #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            )  # [N,B]
-            inter_sum = scatter_sum(
-                src=node_out_regress,
-                index=data['batch'], #.unsqueeze(-1),
-                dim=0,
-                dim_size=B,
-            ) # [N,B]
+            # ---- regressor stats (all [B]) ----
+            reg_mean = scatter_mean(node_out_regress, batch_idx, dim=0, dim_size=B)
+            reg_std  = scatter_std( node_out_regress, batch_idx, dim=0, dim_size=B)
+            reg_sum  = scatter_sum( node_out_regress, batch_idx, dim=0, dim_size=B)
 
-            inter_e_regress = inter_e[:, :, None] # [N,B,1]
-            inter_std_regress = inter_std[:, :, None] # [N,B,1]
-            inter_sum_regress = inter_sum[:, :, None] # [N,B,1]
+            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1).unsqueeze(1)  # [B, 1, 3]
 
-            x_cls = (inter_e_cls, inter_std_cls, inter_sum_cls)
-            x_regress = (inter_e_regress, inter_std_regress, inter_sum_regress)
-
-            preds_cls =  readouts_transformers_cls(x_cls).squeeze(-1) #[N]
-            preds_readout =  readouts_transformers_regress(x_regress).squeeze(-1) #[N]
+            # send tensors (not tuples) to the transformers
+            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
+            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
