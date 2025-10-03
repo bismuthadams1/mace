@@ -1491,6 +1491,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             layer_blocks = []
             transformer_blocks = []
 
+            self.readout_cls = readout_cls
+
             self.readouts_classifier = torch.nn.ModuleList()
             readout_cls = (
                 LinearReadoutBlock(
