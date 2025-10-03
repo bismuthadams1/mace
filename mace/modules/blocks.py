@@ -1510,4 +1510,4 @@ class TwinReadouts(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         # returns per-node scalars from each head
-        return self.cls(x).squeeze(-1), self.reg(x).squeeze(-1)
+        return self.cls(x), self.reg(x)
