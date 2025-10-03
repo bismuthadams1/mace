@@ -1686,6 +1686,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             node_outs_total_class.append(node_out_class)
             node_outs_total_regressor.append(node_out_regress)
 
+            node_out_class = node_out_class.squeeze(-1)
+
             # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
             inter_e = scatter_mean(
                 src=node_out_class,
@@ -1709,6 +1711,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             inter_e_cls = inter_e[:, :, None]
             inter_std_cls = inter_std[:, :, None]
             inter_sum_cls = inter_sum[:, :, None]
+
+            node_out_regress = node_out_regress.squeeze(-1)
 
             inter_e = scatter_mean(
                 src=node_out_regress,
