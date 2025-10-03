@@ -1689,21 +1689,21 @@ class GatedCouplingPredictor(torch.nn.Module):
             # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
             inter_e = scatter_mean(
                 src=node_out_class,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
             inter_std = scatter_std(
                 src=node_out_class,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
             inter_sum = scatter_sum(
                 src=node_out_class,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
 
             inter_e_cls = inter_e[:, :, None]
@@ -1712,21 +1712,21 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             inter_e = scatter_mean(
                 src=node_out_regress,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
             inter_std = scatter_std(
                 src=node_out_regress,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
             inter_sum = scatter_sum(
                 src=node_out_regress,
-                index=data.batch.unsqueeze(-1),
+                index=data['batch'].unsqueeze(-1),
                 dim=0,
-                dim_size=data.num_graphs,
+                dim_size=B,
             )  # [n_graphs,16]
 
             inter_e_regress = inter_e[:, :, None]
