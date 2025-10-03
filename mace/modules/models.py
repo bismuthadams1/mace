@@ -1682,7 +1682,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             # Run classifier HEADS
 
-            node_out_class, node_out_regress = readouts_layers(node_feats).squeeze(-1)
+            node_out_class, node_out_regress = readouts_layers(node_feats)
             node_outs_total_class.append(node_out_class)
             node_outs_total_regressor.append(node_out_regress)
 
@@ -1736,8 +1736,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             x_cls = (inter_e_cls, inter_std_cls, inter_sum_cls)
             x_regress = (inter_e_regress, inter_std_regress, inter_sum_regress)
 
-            preds_cls =  readouts_transformers_cls(x_cls)
-            preds_readout =  readouts_transformers_regress(x_regress)
+            preds_cls =  readouts_transformers_cls(x_cls).squeeze(-1)
+            preds_readout =  readouts_transformers_regress(x_regress).squeeze(-1)
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
@@ -1745,8 +1745,7 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         H_layers_cls = torch.stack(readouts_per_layer_class, dim=-1)
         H_layers_regress = torch.stack(readouts_per_layer_regressor, dim=-1)
-        # logit_layers = H_layers_cls
-        # coupling_layers = H_layers[:, 1, :]
+
         total_logit_layers = torch.sum(H_layers_cls, dim=-1)
         total_coupling_layers = torch.sum(H_layers_regress, dim=-1)
 
