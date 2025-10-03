@@ -1511,20 +1511,3 @@ class TwinReadouts(torch.nn.Module):
     def forward(self, x: torch.Tensor):
         # returns per-node scalars from each head
         return self.cls(x).squeeze(-1), self.reg(x).squeeze(-1)
-
-@compile_mode("script")
-class QuadReadouts(torch.nn.Module):
-    def __init__(
-            self, 
-            cls_head: torch.nn.Module, 
-            reg_head: torch.nn.Module, 
-            cls_trans: torch.nn.Module,
-            reg_trans: torch.nn.Module, 
-        ):
-        super().__init__()
-        self.cls = cls_head
-        self.reg = reg_head
-
-    def forward(self, x: torch.Tensor):
-        # returns per-node scalars from each head
-        return self.cls(x).squeeze(-1), self.reg(x).squeeze(-1)

@@ -1489,17 +1489,19 @@ class GatedCouplingPredictor(torch.nn.Module):
             self.products = torch.nn.ModuleList([prod])
 
             layer_blocks = torch.nn.ModuleList()
-            transformer_blocks = torch.nn.ModuleList()
+            transformer_blocks_cls = torch.nn.ModuleList()
+            transformer_blocks_regress= torch.nn.ModuleList()
 
             self.readout_cls = readout_cls
 
             self.readouts_classifier = torch.nn.ModuleList()
+
             readout_cls = (
                 LinearReadoutBlock(
                         irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
                     )
             )
-            transformer_cls = (
+            transformer_blocks_cls.append(
                 TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
@@ -1512,7 +1514,7 @@ class GatedCouplingPredictor(torch.nn.Module):
                         irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
                     )
             )
-            transformer_regress = (
+            transformer_blocks_regress.append(
                 TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
@@ -1530,11 +1532,6 @@ class GatedCouplingPredictor(torch.nn.Module):
                     readout_cls, readout_regress
                 )
             )
-
-            transformer_blocks.append(
-            TwinReadouts(
-                transformer_cls, transformer_regress
-            ))
 
             for i in range(num_interactions - 1):
 
@@ -1574,14 +1571,16 @@ class GatedCouplingPredictor(torch.nn.Module):
                         gate=torch.nn.functional.silu,
                         irrep_out=o3.Irreps("1x0e"), num_heads=1,
                     )
-                    ro_cls_tf = TransformerGraphReadoutBlock(
+                    transformer_blocks_cls.append(
+                        TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
-                    )
-                    ro_reg_tf = TransformerGraphReadoutBlock(
+                    ))
+                    transformer_blocks_regress.append(
+                        TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
-                    )
+                    ))
                 else:
                     ro_cls = LinearReadoutBlock(
                         irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
@@ -1589,14 +1588,16 @@ class GatedCouplingPredictor(torch.nn.Module):
                     ro_reg = LinearReadoutBlock(
                         irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
                     )
-                    ro_cls_tf =  TransformerGraphReadoutBlock(
+                    transformer_blocks_cls.append(
+                        TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e"),
-                    )
-                    ro_reg_tf = TransformerGraphReadoutBlock(
+                    ))
+                    transformer_blocks_regress.append(
+                        TransformerGraphReadoutBlock(
                         irreps_in = hidden_irreps,
                         MLP_irreps = o3.Irreps("1x0e")
-                    )
+                    ))
 
                 # self.readouts['layers'].append(
                 #     TwinReadouts(ro_cls, ro_reg)
@@ -1604,13 +1605,12 @@ class GatedCouplingPredictor(torch.nn.Module):
                 layer_blocks.append(
                      TwinReadouts(ro_cls, ro_reg)
                 )
-                transformer_blocks.append(
-                    TwinReadouts(ro_cls_tf, ro_reg_tf)
-                )
+
             
             self.readouts = torch.nn.ModuleDict({
                 'layers' : layer_blocks,
-                'transformers' : transformer_blocks
+                'transformers_cls' : transformer_blocks_cls,
+                'transformers_regress' : transformer_blocks_regress
             })
 
     def forward(
@@ -1652,8 +1652,17 @@ class GatedCouplingPredictor(torch.nn.Module):
 
         readouts_per_layer_class = []
         readouts_per_layer_regressor = []
-        for interaction, product, readouts in zip(
-            self.interactions, self.products, self.readouts
+        for (interaction,
+            product,
+            readouts_layers, 
+            readouts_transformers_cls, 
+            readouts_transformers_regress
+        ) in zip(
+            self.interactions, 
+            self.products, 
+            self.readouts['layers'], 
+            self.readouts['transformers_cls'],
+            self.readouts['transformers_regress']
         ):
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1673,8 +1682,9 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             # Run classifier HEADS
 
-            node_out_class = readouts['layers'](node_feats).squeeze(-1)
+            node_out_class, node_out_regress = readouts_layers(node_feats).squeeze(-1)
             node_outs_total_class.append(node_out_class)
+            node_outs_total_regressor.append(node_out_regress)
 
             # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
             inter_e = scatter_mean(
@@ -1696,18 +1706,9 @@ class GatedCouplingPredictor(torch.nn.Module):
                 dim_size=data.num_graphs,
             )  # [n_graphs,16]
 
-            inter_e = inter_e[:, :, None]
-            inter_std = inter_std[:, :, None]
-            inter_sum = inter_sum[:, :, None]
-
-            x = (inter_e, inter_std, inter_sum)
-
-            readouts_per_layer_class.append(readouts['transformers'](x))
-
-            # Run regressor HEADS
-
-            node_out_regress = readouts['layers'](node_feats).squeeze(-1)
-            node_outs_total_regressor.append(node_out_regress)
+            inter_e_cls = inter_e[:, :, None]
+            inter_std_cls = inter_std[:, :, None]
+            inter_sum_cls = inter_sum[:, :, None]
 
             inter_e = scatter_mean(
                 src=node_out_regress,
@@ -1728,13 +1729,19 @@ class GatedCouplingPredictor(torch.nn.Module):
                 dim_size=data.num_graphs,
             )  # [n_graphs,16]
 
-            inter_e = inter_e[:, :, None]
-            inter_std = inter_std[:, :, None]
-            inter_sum = inter_sum[:, :, None]
+            inter_e_regress = inter_e[:, :, None]
+            inter_std_regress = inter_std[:, :, None]
+            inter_sum_regress = inter_sum[:, :, None]
 
-            x = (inter_e, inter_std, inter_sum)
+            x_cls = (inter_e_cls, inter_std_cls, inter_sum_cls)
+            x_regress = (inter_e_regress, inter_std_regress, inter_sum_regress)
 
-            readouts_per_layer_regressor.append(readouts['transformers'](x))
+            preds_cls =  readouts_transformers_cls(x_cls)
+            preds_readout =  readouts_transformers_regress(x_regress)
+
+            readouts_per_layer_class.append(preds_cls)
+            readouts_per_layer_regressor.append(preds_readout)
+
 
         H_layers_cls = torch.stack(readouts_per_layer_class, dim=-1)
         H_layers_regress = torch.stack(readouts_per_layer_regressor, dim=-1)
