@@ -1488,8 +1488,8 @@ class GatedCouplingPredictor(torch.nn.Module):
             )
             self.products = torch.nn.ModuleList([prod])
 
-            layer_blocks = []
-            transformer_blocks = []
+            layer_blocks = torch.nn.ModuleList()
+            transformer_blocks = torch.nn.ModuleList()
 
             self.readout_cls = readout_cls
 
