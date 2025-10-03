@@ -1488,26 +1488,51 @@ class GatedCouplingPredictor(torch.nn.Module):
             )
             self.products = torch.nn.ModuleList([prod])
 
+            layer_blocks = []
+            transformer_blocks = []
+
             self.readouts_classifier = torch.nn.ModuleList()
-            self.readouts_classifier.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
+            readout_cls = (
+                LinearReadoutBlock(
+                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                    )
+            )
+            transformer_cls = (
+                TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e"),
+                    )
+            )
 
             self.readouts_regressor = torch.nn.ModuleList()
-            self.readouts_regressor.append(TransformerGraphReadoutBlock(hidden_irreps, MLP_irreps=hidden_irreps))
+            readout_regress = (
+                LinearReadoutBlock(
+                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                    )
+            )
+            transformer_regress = (
+                TransformerGraphReadoutBlock(
+                        irreps_in = hidden_irreps,
+                        MLP_irreps = o3.Irreps("1x0e"),
+                )
+            )      
 
-            self.readout_cls = readout_cls          
-
-            self.readouts['layers'].append(
-            TwinReadouts(
-                self.readouts_classifier[0], self.readouts_regressor[0]
-            ))
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
 
             logging.info(f"number of interactions: {num_interactions}")
 
-            layer_blocks = []
-            transformer_blocks = []
+            layer_blocks.append(
+                TwinReadouts(
+                    readout_cls, readout_regress
+                )
+            )
+
+            transformer_blocks.append(
+            TwinReadouts(
+                transformer_cls, transformer_regress
+            ))
 
             for i in range(num_interactions - 1):
 
