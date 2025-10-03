@@ -1477,9 +1477,6 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         
         return output
 
-
-
-
 class ParallelSkipRegressorHead(torch.nn.Module):
     def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):
         super().__init__()

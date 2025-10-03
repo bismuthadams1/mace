@@ -1682,11 +1682,12 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             # Run classifier HEADS
 
-            node_out_class, node_out_regress = readouts_layers(node_feats)
+            node_out_class, node_out_regress = readouts_layers(node_feats) 
             node_outs_total_class.append(node_out_class)
             node_outs_total_regressor.append(node_out_regress)
-
-            node_out_class = node_out_class.squeeze(-1)
+            # Node out class [NxB, 1]
+            node_out_class = node_out_class.squeeze(-1) 
+            # Node out [NxB]
 
             # graph_out_class = scatter_mean(node_out_class, data['batch'], dim=0, dim_size=B)  # [B,1]
             inter_e = scatter_mean(
@@ -1694,23 +1695,23 @@ class GatedCouplingPredictor(torch.nn.Module):
                 index=data['batch'], #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            )  # [N,B]
             inter_std = scatter_std(
                 src=node_out_class,
                 index=data['batch'],  #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            ) # [N,B]
             inter_sum = scatter_sum(
                 src=node_out_class,
                 index=data['batch'], #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            )  # [N,B]
 
-            inter_e_cls = inter_e[:, :, None]
-            inter_std_cls = inter_std[:, :, None]
-            inter_sum_cls = inter_sum[:, :, None]
+            inter_e_cls = inter_e[:, :, None] # [N,B,1]
+            inter_std_cls = inter_std[:, :, None] # [N,B,1]
+            inter_sum_cls = inter_sum[:, :, None] # [N,B,1]
 
             node_out_regress = node_out_regress.squeeze(-1)
 
@@ -1719,29 +1720,29 @@ class GatedCouplingPredictor(torch.nn.Module):
                 index=data['batch'], #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            )  # [N,B]
             inter_std = scatter_std(
                 src=node_out_regress,
                 index=data['batch'], #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            )  # [N,B]
             inter_sum = scatter_sum(
                 src=node_out_regress,
                 index=data['batch'], #.unsqueeze(-1),
                 dim=0,
                 dim_size=B,
-            )  # [n_graphs,16]
+            ) # [N,B]
 
-            inter_e_regress = inter_e[:, :, None]
-            inter_std_regress = inter_std[:, :, None]
-            inter_sum_regress = inter_sum[:, :, None]
+            inter_e_regress = inter_e[:, :, None] # [N,B,1]
+            inter_std_regress = inter_std[:, :, None] # [N,B,1]
+            inter_sum_regress = inter_sum[:, :, None] # [N,B,1]
 
             x_cls = (inter_e_cls, inter_std_cls, inter_sum_cls)
             x_regress = (inter_e_regress, inter_std_regress, inter_sum_regress)
 
-            preds_cls =  readouts_transformers_cls(x_cls).squeeze(-1)
-            preds_readout =  readouts_transformers_regress(x_regress).squeeze(-1)
+            preds_cls =  readouts_transformers_cls(x_cls).squeeze(-1) #[N]
+            preds_readout =  readouts_transformers_regress(x_regress).squeeze(-1) #[N]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
