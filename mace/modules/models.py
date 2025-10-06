@@ -1496,28 +1496,32 @@ class GatedCouplingPredictor(torch.nn.Module):
 
             self.readouts_classifier = torch.nn.ModuleList()
 
+            HEAD_CHANNELS = 16
+
             readout_cls = (
                 LinearReadoutBlock(
-                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                        irreps_in=hidden_irreps, 
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
             )
             transformer_blocks_cls.append(
                 TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e"),
+                        irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                        MLP_irreps = o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
             )
 
             self.readouts_regressor = torch.nn.ModuleList()
             readout_regress = (
                 LinearReadoutBlock(
-                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                        irreps_in=hidden_irreps, 
+                        MLP_irreps = o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
             )
             transformer_blocks_regress.append(
                 TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e"),
+                        irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                        MLP_irreps = o3.Irreps(f"{HEAD_CHANNELS}x0e")
                 )
             )      
 
@@ -1560,7 +1564,6 @@ class GatedCouplingPredictor(torch.nn.Module):
                 self.products.append(prod)
                 irreps_by_layer.append(hidden_irreps_out)
 
-                HEAD_CHANNELS = 16
                 if i == num_interactions - 2:
                     # last layer non-linear readout
                     ro_cls = self.readout_cls(
@@ -1833,7 +1836,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
 
             # Run classifier HEADS
 
-            node_out_class, node_out_regress = readouts_layers(node_feats) 
+            node_out_class, node_out_regress = readouts_layers(node_feats)  # [NxB, C], [NxB, C]
             node_outs_total_class.append(node_out_class)
             node_outs_total_regressor.append(node_out_regress)
             # Node out class [NxB, 1]
