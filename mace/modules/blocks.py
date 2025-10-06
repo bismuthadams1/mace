@@ -1456,7 +1456,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         mid_dim = MLP_irreps.num_irreps
         self.mom_attn = torch.nn.MultiheadAttention(
-            input_dim, 8, 0.05, batch_first=True
+            input_dim, 8, 0.05, batch_first=True #9 = num_heads this needs to be      
         )
 
         self.fc = torch.nn.Sequential(
@@ -1465,7 +1465,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
         )
-    def forward(self, x):  
+    def forward(self, x):   # x [B, 1, 3]
         
         # inter_e, inter_std, inter_sum = x
         # momentums = self.mom_mapper(torch.cat([inter_e, inter_std, inter_sum], dim=2))
@@ -1476,18 +1476,22 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         # output = self.fc(momentums)
         
         # return output
-        B, C, _ = x.shape
-        h = self.proj(x)            # [B, C, d_model] (linear applies on last dim)
-        for layer in self.layers:
-            h = layer(h)            # [B, C, d_model]
+
+        B, C, D = x.shape
+        h = self.mom_mapper(x)            # [B, C, d_model] (linear applies on last dim) output B,C,1
+        h_attn, _ =  self.mom_attn(h,h,h) # contains weights
+        h = h  + h_attn
+        h = self.fc(h)
+        # for layer in self.layers:
+        #     h = layer(h)            # [B, C, d_model]
 
         # pool over C (channels-as-tokens) -> [B, d_model]
         # using mean is fine too: h = h.mean(dim=1)
-        h = h.transpose(1, 2)                 # [B, d_model, C]
-        h = self.pool(h).squeeze(-1)          # [B, d_model]
+        # h = h.transpose(1, 2)                 # [B, d_model, C]
+        # h = self.pool(h).squeeze(-1)          # [B, d_model]
 
-        out = self.fc(h)                      # [B, 1]
-        return out
+        # out = self.fc(h)                      # [B, 1]
+        return h
 
 class ParallelSkipRegressorHead(torch.nn.Module):
     def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):
