@@ -1469,8 +1469,8 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         
         B, C, D = x.shape 
         h = self.mom_mapper(x)            # [B, C, d_model] (linear applies on last dim) output B,C,1
-        h_attn, _ =  self.mom_attn(h,h,h) # contains weights
-        h = h  + h_attn
+        h_attn, _ =  self.mom_attn(h,h,h) # _ contains weights/ 
+        h = h  + h_attn                   # Residual
         h = h.mean(dim=1)                         # pool over C -> [B, E]
         h = self.fc(h)
 

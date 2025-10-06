@@ -1567,14 +1567,14 @@ class GatedCouplingPredictor(torch.nn.Module):
                 if i == num_interactions - 2:
                     # last layer non-linear readout
                     ro_cls = self.readout_cls(
-                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        hidden_irreps, (HEAD_CHANNELS*MLP_irreps).simplify(),
                         gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=1,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=HEAD_CHANNELS,
                     )
                     ro_reg = self.readout_cls(
-                        hidden_irreps, (1*MLP_irreps).simplify(),
+                        hidden_irreps, (HEAD_CHANNELS*MLP_irreps).simplify(),
                         gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=1,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=HEAD_CHANNELS,
                     )
                     transformer_blocks_cls.append(
                         TransformerGraphReadoutBlock(
