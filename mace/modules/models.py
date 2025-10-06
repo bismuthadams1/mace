@@ -1852,7 +1852,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             cls_std  = scatter_std( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
             cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
 
-            # pack into [B, 1, 3] (C=1 channel, 3 stats)
+            # pack into [B, C, 3] (C channel, 3 stats)
             x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
             # ---- regressor stats (all [B]) ----

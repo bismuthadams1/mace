@@ -1449,14 +1449,14 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         input_dim = irreps_in.num_irreps
 
         self.mom_mapper = torch.nn.Sequential(
-            torch.nn.Linear(3, 1),
+            torch.nn.Linear(3, input_dim),
             torch.nn.GELU(),
             torch.nn.Dropout(0.01),
         )
 
         mid_dim = MLP_irreps.num_irreps
         self.mom_attn = torch.nn.MultiheadAttention(
-            input_dim, 8, 0.05, batch_first=True #9 = num_heads this needs to be      
+            input_dim, 8, 0.05, batch_first=True 
         )
 
         self.fc = torch.nn.Sequential(
