@@ -1559,44 +1559,48 @@ class GatedCouplingPredictor(torch.nn.Module):
                 )
                 self.products.append(prod)
                 irreps_by_layer.append(hidden_irreps_out)
+
+                HEAD_CHANNELS = 16
                 if i == num_interactions - 2:
                     # last layer non-linear readout
                     ro_cls = self.readout_cls(
                         hidden_irreps, (1*MLP_irreps).simplify(),
                         gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=1,
                     )
                     ro_reg = self.readout_cls(
                         hidden_irreps, (1*MLP_irreps).simplify(),
                         gate=torch.nn.functional.silu,
-                        irrep_out=o3.Irreps("1x0e"), num_heads=1,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e"), num_heads=1,
                     )
                     transformer_blocks_cls.append(
                         TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e"),
+                            irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                            MLP_irreps=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
                     ))
                     transformer_blocks_regress.append(
                         TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e"),
+                            irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                            MLP_irreps=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
                     ))
                 else:
                     ro_cls = LinearReadoutBlock(
-                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                        irreps_in=hidden_irreps,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
                     ro_reg = LinearReadoutBlock(
-                        irreps_in=hidden_irreps, irrep_out=o3.Irreps("1x0e")
+                        irreps_in=hidden_irreps,
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
                     transformer_blocks_cls.append(
                         TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e"),
+                            irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                            MLP_irreps=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
                     ))
                     transformer_blocks_regress.append(
                         TransformerGraphReadoutBlock(
-                        irreps_in = hidden_irreps,
-                        MLP_irreps = o3.Irreps("1x0e")
+                            irreps_in=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
+                            MLP_irreps=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
                     ))
 
                 # self.readouts['layers'].append(
@@ -1687,30 +1691,30 @@ class GatedCouplingPredictor(torch.nn.Module):
             node_outs_total_regressor.append(node_out_regress)
             # Node out class [NxB, 1]
             # node_out_*: [N, 1] each from the twin readout
-            node_out_class   = node_out_class.squeeze(-1)    # [N]
-            node_out_regress = node_out_regress.squeeze(-1)  # [N]
+            node_out_class   = node_out_class.squeeze(-1)    # [NxB, C]
+            node_out_regress = node_out_regress.squeeze(-1)  # [NxB, C]
 
             B = data["ptr"].numel() - 1
             batch_idx = data["batch"]
 
             # ---- classifier stats (all [B]) ----
-            cls_mean = scatter_mean(node_out_class,   batch_idx, dim=0, dim_size=B)
-            cls_std  = scatter_std( node_out_class,   batch_idx, dim=0, dim_size=B)
-            cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B)
+            cls_mean = scatter_mean(node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
+            cls_std  = scatter_std( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
+            cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
 
             # pack into [B, 1, 3] (C=1 channel, 3 stats)
-            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1).unsqueeze(1)  # [B, 1, 3]
+            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
             # ---- regressor stats (all [B]) ----
             reg_mean = scatter_mean(node_out_regress, batch_idx, dim=0, dim_size=B)
             reg_std  = scatter_std( node_out_regress, batch_idx, dim=0, dim_size=B)
             reg_sum  = scatter_sum( node_out_regress, batch_idx, dim=0, dim_size=B)
 
-            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1).unsqueeze(1)  # [B, 1, 3]
+            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
             # send tensors (not tuples) to the transformers
-            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
-            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B, C]
+            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B, C]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
@@ -1794,40 +1798,77 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
         node_outs_total_class = []
-        node_outs_total_reg   = []
-        readouts_per_layer_class = []
-        readouts_per_layer_reg   = []
+        node_outs_total_regressor = []
 
-        for inter, prod, ro_cls, ro_reg in zip(
-                self.interactions, self.products,
-                self.readouts_classifier, self.readouts_regressor):
-            node_feats, sc = inter(
+        readouts_per_layer_class = []
+        readouts_per_layer_regressor = []
+
+        for (interaction,
+            product,
+            readouts_layers, 
+            readouts_transformers_cls, 
+            readouts_transformers_regress
+        ) in zip(
+            self.interactions, 
+            self.products, 
+            self.readouts['layers'], 
+            self.readouts['transformers_cls'],
+            self.readouts['transformers_regress']
+        ):
+            node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
                 node_feats=node_feats,
                 edge_attrs=edge_attrs,
                 edge_feats=edge_feats,
                 edge_index=data["edge_index"],
-                cutoff=cutoff,
+                cutoff=cutoff, 
             )
-            node_feats = prod(
+            node_feats = product(
                 node_feats=node_feats,
                 sc=sc,
                 node_attrs=data["node_attrs"],
             )
 
-            node_cls = ro_cls(node_feats).squeeze(-1)   # [N]
-            node_reg = ro_reg(node_feats).squeeze(-1)   # [N]
-            node_outs_total_class.append(node_cls)
-            node_outs_total_reg.append(node_reg)
+            B = data["ptr"].numel() - 1
+
+            # Run classifier HEADS
+
+            node_out_class, node_out_regress = readouts_layers(node_feats) 
+            node_outs_total_class.append(node_out_class)
+            node_outs_total_regressor.append(node_out_regress)
+            # Node out class [NxB, 1]
+            # node_out_*: [N, 1] each from the twin readout
+            # node_out_class   = node_out_class.squeeze(-1)    # [NxB, C]
+            # node_out_regress = node_out_regress.squeeze(-1)  # [NxB, C]
 
             B = data["ptr"].numel() - 1
-            g_cls = scatter_mean(node_cls, data["batch"], dim=0, dim_size=B)  # [B]
-            g_reg = scatter_mean(node_reg, data["batch"], dim=0, dim_size=B)  # [B]
-            readouts_per_layer_class.append(g_cls)
-            readouts_per_layer_reg.append(g_reg)
+            batch_idx = data["batch"].unsqueeze(-1) # [B] -> [B,1] so the scatter broadcasts across C
 
-        H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L]
-        H_reg = torch.stack(readouts_per_layer_reg,   dim=-1)   # [B, L]
+            # ---- classifier stats (all [B]) ----
+            cls_mean = scatter_mean(node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
+            cls_std  = scatter_std( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
+            cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
+
+            # pack into [B, 1, 3] (C=1 channel, 3 stats)
+            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
+
+            # ---- regressor stats (all [B]) ----
+            reg_mean = scatter_mean(node_out_regress, batch_idx, dim=0, dim_size=B)
+            reg_std  = scatter_std( node_out_regress, batch_idx, dim=0, dim_size=B)
+            reg_sum  = scatter_sum( node_out_regress, batch_idx, dim=0, dim_size=B)
+
+            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
+
+            # send tensors (not tuples) to the transformers
+            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
+            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+
+            readouts_per_layer_class.append(preds_cls)
+            readouts_per_layer_regressor.append(preds_readout)
+
+
+        H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L] where L = num layers
+        H_reg = torch.stack(readouts_per_layer_regressor,   dim=-1)   # [B, L]
 
         total_logits   = H_cls.sum(dim=-1)   # [B]
         total_regress  = H_reg.sum(dim=-1)   # [B]
