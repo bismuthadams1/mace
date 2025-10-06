@@ -1515,7 +1515,7 @@ class GatedCouplingPredictor(torch.nn.Module):
             readout_regress = (
                 LinearReadoutBlock(
                         irreps_in=hidden_irreps, 
-                        MLP_irreps = o3.Irreps(f"{HEAD_CHANNELS}x0e")
+                        irrep_out=o3.Irreps(f"{HEAD_CHANNELS}x0e")
                     )
             )
             transformer_blocks_regress.append(
