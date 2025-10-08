@@ -1471,18 +1471,21 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
         )
+
+        # self.out_proj = torch.nn.Linear(input_dim, 1)
+
     def forward(self, x):   # x [B, C, 3]
         
         B, C, D = x.shape 
         h = self.mom_mapper(x)            # [B, C, d_model] (linear applies on last dim) output B,C,1
         h = self.layer_norm_mapper(h)     # LN over last dim
         h_attn, _ =  self.mom_attn(h,h,h) # _ contains weights/ 
-        h = h  + h_attn                   # Residual
-        h = self.mom_attn_norm(h)  # LN over last dim
-        h = h.mean(dim=1)                         # pool over C -> [B, E]
-        h = self.fc(h)
-
-        return h
+        h = h  + h_attn                   # Residual 1
+        h_mom_attn = self.mom_attn_norm(h)  # LN over last dim
+        h_mom_attn = h_mom_attn.mean(dim=1)                         # pool over C -> [B, E]
+        h_ff = self.fc(h_mom_attn)
+        # h = self.out_proj(h_mom_attn)  + h_ff # [B, 1], residual 2 INVALID: CANT ADD RESIDUAL TO HEAD, only hidden
+        return h_ff
 
 class ParallelSkipRegressorHead(torch.nn.Module):
     def __init__(self, d_model: int, hidden: int = None, p: float = 0.01):
