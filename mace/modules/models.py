@@ -1512,6 +1512,7 @@ class GatedCouplingPredictor(torch.nn.Module):
             )
 
             self.readouts_regressor = torch.nn.ModuleList()
+
             readout_regress = (
                 LinearReadoutBlock(
                         irreps_in=hidden_irreps, 
@@ -1524,7 +1525,6 @@ class GatedCouplingPredictor(torch.nn.Module):
                         MLP_irreps = o3.Irreps(f"{HEAD_CHANNELS}x0e")
                 )
             )      
-
 
             irreps_by_layer = []
             irreps_by_layer.append(hidden_irreps)
@@ -1606,9 +1606,6 @@ class GatedCouplingPredictor(torch.nn.Module):
                             MLP_irreps=o3.Irreps(f"{HEAD_CHANNELS}x0e"),
                     ))
 
-                # self.readouts['layers'].append(
-                #     TwinReadouts(ro_cls, ro_reg)
-                # )
                 layer_blocks.append(
                      TwinReadouts(ro_cls, ro_reg)
                 )

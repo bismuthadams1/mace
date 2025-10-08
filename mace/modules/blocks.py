@@ -1454,14 +1454,20 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Dropout(0.01),
         )
 
+        self.layer_norm_mapper = torch.nn.LayerNorm(input_dim)
+
         mid_dim = MLP_irreps.num_irreps
+
         self.mom_attn = torch.nn.MultiheadAttention(
             input_dim, 8, 0.05, batch_first=True 
         )
 
+        self.mom_attn_norm = torch.nn.LayerNorm(input_dim)
+
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(input_dim, mid_dim),
             torch.nn.GELU(),
+            torch.nn.LayerNorm(mid_dim),
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
         )
@@ -1469,8 +1475,10 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         
         B, C, D = x.shape 
         h = self.mom_mapper(x)            # [B, C, d_model] (linear applies on last dim) output B,C,1
+        h = self.layer_norm_mapper(h)     # LN over last dim
         h_attn, _ =  self.mom_attn(h,h,h) # _ contains weights/ 
         h = h  + h_attn                   # Residual
+        h = self.mom_attn_norm(h)  # LN over last dim
         h = h.mean(dim=1)                         # pool over C -> [B, E]
         h = self.fc(h)
 
