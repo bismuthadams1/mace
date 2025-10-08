@@ -1454,7 +1454,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
             torch.nn.Dropout(0.01),
         )
 
-        self.layer_norm_mapper = torch.nn.LayerNorm(input_dim)
+        self.norm1 = torch.nn.LayerNorm(input_dim)
 
         mid_dim = MLP_irreps.num_irreps
 
@@ -1478,9 +1478,10 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         
         B, C, D = x.shape 
         h = self.mom_mapper(x)            # [B, C, d_model] (linear applies on last dim) output B,C,1
-        h = self.layer_norm_mapper(h)     # LN over last dim
+        x_in = h
+        h = self.norm1(h)     # LN over last dim
         h_attn, _ =  self.mom_attn(h,h,h) # _ contains weights/ 
-        h = h  + h_attn                   # Residual 1
+        h = x_in  + h_attn                   # Residual 1, for transformers we add the pre-normed input
         h_mom_attn = self.mom_attn_norm(h)  # LN over last dim
         h_mom_attn = h_mom_attn.mean(dim=1)                         # pool over C -> [B, E]
         h_ff = self.fc(h_mom_attn)
