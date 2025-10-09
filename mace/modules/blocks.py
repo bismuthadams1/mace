@@ -1450,7 +1450,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         self.mom_mapper = torch.nn.Sequential(
             torch.nn.Linear(3, input_dim),
-            torch.nn.GELU(),
+            torch.nn.SiLU(),
             torch.nn.Dropout(0.01),
         )
 
@@ -1466,7 +1466,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
 
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(input_dim, mid_dim),
-            torch.nn.GELU(),
+            torch.nn.SiLU(),
             torch.nn.LayerNorm(mid_dim),
             torch.nn.Dropout(0.01),
             torch.nn.Linear(mid_dim, 1),
