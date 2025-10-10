@@ -129,6 +129,76 @@ error_type = {
 }
 
 
+KIND_MAP = {0: "mapper", 1: "attn", 2: "pooled"}
+
+def _activations_to_df(named_results: dict) -> "pd.DataFrame":
+    """
+    named_results: {dataset_name: results_dict_from_model_inference}
+    returns a long-form DataFrame with columns:
+      ['dataset','task','kind','layer','step','val']
+    Missing activations -> empty DataFrame.
+    """
+    rows = []
+    for dataset_name, res in named_results.items():
+        acts = res.get("activations")
+        if not acts:
+            continue
+        for task in ("cls", "regress"):
+            a = acts.get(task)
+            if not a:
+                continue
+            # tensors -> cpu numpy
+            val   = a["val"].detach().cpu().numpy()
+            layer = a["layer"].detach().cpu().numpy()
+            kind  = a["kind"].detach().cpu().numpy()
+            step  = a["step"].detach().cpu().numpy()
+            for v, l, k, s in zip(val, layer, kind, step):
+                rows.append({
+                    "dataset": dataset_name,
+                    "task": task,
+                    "kind": KIND_MAP.get(int(k), f"kind_{int(k)}"),
+                    "layer": int(l),
+                    "step":  int(s),
+                    "val":   float(v),
+                })
+    import pandas as pd
+    return pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=["dataset","task","kind","layer","step","val"]
+    )
+
+def _plot_activation_norms(axs, train_df, test_df, title_prefix=""):
+    """
+    axs: a dict like {'cls': ax1, 'regress': ax2} or a list [ax1, ax2]
+    Plots mean(val) vs layer for each kind, with train/test styles.
+    """
+    import numpy as np
+
+    def _agg(df):
+        if df.empty:
+            return df
+        # If you logged step==-1 in inference, step adds no value; we just mean over step & dataset
+        return (df.groupby(["task","kind","layer"])["val"]
+                  .mean().reset_index())
+
+    train_g = _agg(train_df)
+    test_g  = _agg(test_df)
+
+    tasks = ["cls","regress"]
+    for i, task in enumerate(tasks):
+        ax = axs[i] if isinstance(axs, (list, tuple)) else axs[task]
+        ax.set_title(f"{title_prefix}{task} activation norms")
+        ax.set_xlabel("Layer")
+        ax.set_ylabel("Mean L2 activation")
+        # one line per kind; train solid, test dashed
+        for kind in ["mapper","attn","pooled"]:
+            td = train_g[(train_g.task==task) & (train_g.kind==kind)]
+            sd = test_g[(test_g.task==task)  & (test_g.kind==kind)]
+            if not td.empty:
+                ax.plot(td["layer"], td["val"], label=f"train {kind}")
+            if not sd.empty:
+                ax.plot(sd["layer"], sd["val"], linestyle="--", label=f"test {kind}")
+        ax.legend(loc="best")
+
 class TrainingPlotter:
     def __init__(
         self,
@@ -143,6 +213,8 @@ class TrainingPlotter:
         distributed: bool = False,
         swa_start: Optional[int] = None,
         loss_fn = None, 
+        plot_interaction_e: bool = False,
+
     ):
         self.results_dir = results_dir
         self.heads = heads
@@ -155,6 +227,9 @@ class TrainingPlotter:
         self.distributed = distributed
         self.swa_start = swa_start
         self.loss_fn = loss_fn
+        self.plot_interaction_e = plot_interaction_e
+
+
 
     def plot(self, model_epoch: str, model: torch.nn.Module, rank: int) -> None:
 
@@ -170,6 +245,61 @@ class TrainingPlotter:
         test_dict = model_inference(
             self.test_data, model, self.output_args, self.device, self.distributed, self.loss_fn,
         )
+
+                # ----- collect activations (DataFrames) -----
+        train_act_df = _activations_to_df(train_valid_dict)
+        test_act_df  = _activations_to_df(test_dict)
+        have_acts = (not train_act_df.empty) or (not test_act_df.empty)
+
+        # ----- (optional) persist full results for debugging -----
+        # your JSON dump is fine; tensors are now converted to lists by earlier compute(), but if not,
+        # make sure to convert to python types before dumping.
+
+        if rank != 0:
+            return
+
+        data = pd.DataFrame(results for results in parse_training_results(self.results_dir))
+        labels, quantities = error_type[self.table_type]
+
+        for head in self.heads:
+            fig = plt.figure(layout="constrained", figsize=(11, 9 if have_acts else 6))
+            fig.suptitle(f"Model loaded from epoch {model_epoch} ({head} head)", fontsize=16)
+
+            # If we have activations, make 3 subfig rows; else keep 2
+            if have_acts:
+                subfigs = fig.subfigures(3, 1, height_ratios=[1, 1, 1], hspace=0.06)
+            else:
+                subfigs = fig.subfigures(2, 1, height_ratios=[1, 1], hspace=0.06)
+
+            # row 1: epoch dependence (unchanged)
+            axsTop = subfigs[0].subplots(1, 2, sharey=False)
+            plot_epoch_dependence(axsTop, data, head, model_epoch, labels)
+
+            # row 2: inference scatter(s) (unchanged)
+            axsBottom = subfigs[1].subplots(1, len(quantities), sharey=False, squeeze=False)
+            axsBottom = axsBottom.ravel()
+            plot_inference_from_results(
+                axsBottom, train_valid_dict, test_dict, head, quantities,
+                plot_interaction_e=self.plot_interaction_e
+            )
+
+            # row 3: NEW — activation norms (2 axes: cls & regress)
+            if have_acts:
+                ax_act = subfigs[2].subplots(1, 2, sharey=False)
+                _plot_activation_norms(ax_act, train_act_df, test_act_df, title_prefix="")
+
+            if self.swa_start is not None:
+                for ax in axsTop:
+                    ax.axvline(self.swa_start, color="black", linestyle="dashed", linewidth=1, alpha=0.6,
+                            label="Stage Two Starts")
+                stage = "stage_two" if self.swa_start < model_epoch else "stage_one"
+            else:
+                stage = "stage_one"
+
+            axsTop[0].legend(loc="best")
+            filename = f"{self.results_dir[:-4]}_{head}_{stage}.png"
+            fig.savefig(filename, dpi=300, bbox_inches="tight")
+            plt.close(fig)
 
         #MONITORING-----
         import json
@@ -216,7 +346,7 @@ class TrainingPlotter:
 
             # Use the pre-computed results for plotting
             plot_inference_from_results(
-                axsBottom, train_valid_dict, test_dict, head, quantities
+                axsBottom, train_valid_dict, test_dict, head, quantities, plot_interaction_e=self.plot_interaction_e
             )
 
             if self.swa_start is not None:
@@ -345,6 +475,7 @@ def plot_inference_from_results(
     test_dict: dict,
     head: str,
     quantities: List[str],
+    plot_interaction_e: bool = False,
 ) -> None:
 
     logging.info(f"axis: {axes}")
@@ -426,13 +557,18 @@ def plot_inference_from_results(
 
             
             elif key == "effective_coupling" and "effective_coupling" in result:
-                scatter = ax.scatter(
-                    result["effective_coupling"]["reference"],
-                    result["effective_coupling"]["predicted"],
-                    marker=marker,
-                    color=fixed_color_train_valid,
-                    label=name,  
-                )
+                # if plot_interaction_e:
+                #     scatter = ax.scatter(
+                #        y=result["interaction_energies"]["reference"],
+
+                # else:
+                    scatter = ax.scatter(
+                        result["effective_coupling"]["reference"],
+                        result["effective_coupling"]["predicted"],
+                        marker=marker,
+                        color=fixed_color_train_valid,
+                        label=name,  
+                    )
 
             # Add each train/valid dataset's name to the legend if scatter was assigned
             if scatter is not None:
@@ -554,7 +690,7 @@ def model_inference(
                 compute_stress=output_args.get("stress", False),
             )
 
-            results = scatter_metric(batch, output)
+            results = scatter_metric(batch, output) #this calls update()
 
         if distributed:
             torch.distributed.barrier()
@@ -573,7 +709,6 @@ def model_inference(
 
 def to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.cpu().detach().numpy()
-
 
 class InferenceMetric(Metric):
     """Metric class for collecting reference and predicted values for scatterplot visualization."""
@@ -619,16 +754,106 @@ class InferenceMetric(Metric):
         # Electronic coupling metrics
         self.add_state("coupling_accuracy", default = [], dist_reduce_fx="cat")
 
+        #monitor node light up
+        self.add_state("n_iter", default = [], dist_reduce_fx="cat")
+        self.add_state("act_val_cls",   default=torch.tensor([], dtype=torch.float32), dist_reduce_fx="cat")
+        self.add_state("act_layer_cls", default=torch.tensor([], dtype=torch.int32),   dist_reduce_fx="cat")
+        self.add_state("act_kind_cls",  default=torch.tensor([], dtype=torch.int8),    dist_reduce_fx="cat")
+        self.add_state("act_step_cls",  default=torch.tensor([], dtype=torch.int32),   dist_reduce_fx="cat")
+
+        self.add_state("act_val_regress",   default=torch.tensor([], dtype=torch.float32), dist_reduce_fx="cat")
+        self.add_state("act_layer_regress", default=torch.tensor([], dtype=torch.int32),   dist_reduce_fx="cat")
+        self.add_state("act_kind_regress",  default=torch.tensor([], dtype=torch.int8),    dist_reduce_fx="cat")
+        self.add_state("act_step_regress",  default=torch.tensor([], dtype=torch.int32),   dist_reduce_fx="cat")
+
         #Pass through the loss function
         self.loss_fn = loss_fn
 
         # self.add_state("coupling predicted", default = [], dist_reduce_fx="cat")
 
-    def update(self, batch, output):  # pylint: disable=arguments-differ
+    @staticmethod
+    def _stack_layer_means(per_layer_list):
+        # per_layer_list: list of tensors shaped [B] (per-batch norms per layer)
+        # returns [L] means across batch
+        return torch.stack([v.detach().float().mean() for v in per_layer_list]) if per_layer_list else torch.tensor([])
+
+    def _accum_long_form(self, *, target: str, mapper_L, attn_L, pool_L, step_idx: int):
+        """
+        target: 'cls' or 'regress'
+        mapper_L/attn_L/pool_L: [L] or empty tensor
+        Writes into act_*_{target} states.
+        """
+        chunks = []
+
+        if mapper_L is not None and mapper_L.numel() > 0:
+            L = mapper_L.numel()
+            chunks.append((
+                mapper_L.reshape(-1),
+                torch.arange(L, dtype=torch.int32, device=mapper_L.device),
+                torch.full((L,), 0, dtype=torch.int8, device=mapper_L.device),  # kind 0 = mapper
+            ))
+        if attn_L is not None and attn_L.numel() > 0:
+            L = attn_L.numel()
+            chunks.append((
+                attn_L.reshape(-1),
+                torch.arange(L, dtype=torch.int32, device=attn_L.device),
+                torch.full((L,), 1, dtype=torch.int8, device=attn_L.device),    # kind 1 = attn
+            ))
+        if pool_L is not None and pool_L.numel() > 0:
+            L = pool_L.numel()
+            chunks.append((
+                pool_L.reshape(-1),
+                torch.arange(L, dtype=torch.int32, device=pool_L.device),
+                torch.full((L,), 2, dtype=torch.int8, device=pool_L.device),    # kind 2 = pooled
+            ))
+
+        if not chunks:
+            return
+
+        val   = torch.cat([c[0] for c in chunks], dim=0).cpu()
+        layer = torch.cat([c[1] for c in chunks], dim[0]).cpu()
+        kind  = torch.cat([c[2] for c in chunks], dim=0).cpu()
+        step  = torch.full_like(layer, -1 if step_idx is None else int(step_idx), dtype=torch.int32)
+
+        if target == "cls":
+            self.act_val_cls   = torch.cat([self.act_val_cls,   val])
+            self.act_layer_cls = torch.cat([self.act_layer_cls, layer])
+            self.act_kind_cls  = torch.cat([self.act_kind_cls,  kind])
+            self.act_step_cls  = torch.cat([self.act_step_cls,  step])
+        else:
+            self.act_val_regress   = torch.cat([self.act_val_regress,   val])
+            self.act_layer_regress = torch.cat([self.act_layer_regress, layer])
+            self.act_kind_regress  = torch.cat([self.act_kind_regress,  kind])
+            self.act_step_regress  = torch.cat([self.act_step_regress,  step])
+
+    def update(
+        self,
+        batch, 
+        output,
+        mapper_L: torch.Tensor = None,   # [L]
+        attn_L:   torch.Tensor = None,   # [L]
+        pool_L:   torch.Tensor = None,   # [L]
+        step_idx: int = None,        
+        ):  # pylint: disable=arguments-differ
         """Update metric states with new batch data."""
         # Calculate number of atoms per configuration
         atoms_per_config = batch.ptr[1:] - batch.ptr[:-1]
         self.atom_counts.append(atoms_per_config)
+        mapper_L_cls   = self._stack_layer_means(output.get("mom_mapper_norm_cls", []))
+        attn_L_cls     = self._stack_layer_means(output.get("attn_norm_cls", []))
+        pool_L_cls     = self._stack_layer_means(output.get("fc_norm_cls", []))
+
+        mapper_L_reg   = self._stack_layer_means(output.get("mom_mapper_norm_regress", []))
+        attn_L_reg     = self._stack_layer_means(output.get("attn_norm_regress", []))
+        pool_L_reg     = self._stack_layer_means(output.get("fc_norm_regress", []))
+
+        with torch.no_grad():
+            self._accum_long_form(target="cls",
+                                mapper_L=mapper_L_cls, attn_L=attn_L_cls, pool_L=pool_L_cls,
+                                step_idx=step_idx)
+            self._accum_long_form(target="regress",
+                                mapper_L=mapper_L_reg, attn_L=attn_L_reg, pool_L=pool_L_reg,
+                                step_idx=step_idx)
 
         # Energy
         if output.get("energy") is not None and batch.energy is not None:
@@ -733,6 +958,21 @@ class InferenceMetric(Metric):
     def compute(self):
         """Compute final results for scatterplot."""
         results = {}
+
+        results["activations"] = {
+            "cls": {
+                "val":   self.act_val_cls,    # [N]
+                "layer": self.act_layer_cls,  # [N]
+                "kind":  self.act_kind_cls,   # [N] (0 mapper, 1 attn, 2 pooled)
+                "step":  self.act_step_cls,   # [N] (-1 if unknown)
+            },
+            "regress": {
+                "val":   self.act_val_regress,
+                "layer": self.act_layer_regress,
+                "kind":  self.act_kind_regress,
+                "step":  self.act_step_regress,
+            }
+        }
 
         # Process energies
         if self.n_energy:

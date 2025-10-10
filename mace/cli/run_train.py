@@ -935,7 +935,8 @@ def run(args) -> None:
                 plot_frequency=args.plot_frequency,
                 distributed=args.distributed,
                 swa_start=swa.start if swa else None,
-                loss_fn= loss_fn
+                loss_fn= loss_fn,
+                plot_interaction_e=args.plot_interaction_e
                 )
         except Exception as e:  # pylint: disable=W0718
             logging.debug(f"Creating Plotter failed: {e}")

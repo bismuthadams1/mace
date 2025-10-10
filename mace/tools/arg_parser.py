@@ -1094,6 +1094,13 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--plot_interaction_e",
+        help="Whether to plot energy without E0s",
+        type=str2bool,
+        default=False,
+    )
+
+    parser.add_argument(
         "--classifier_weight",
         help="Weight for the classifier loss",
         default=1.0,    

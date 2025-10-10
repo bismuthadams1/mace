@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 import numpy as np
 import torch
 import csv
+from collections import defaultdict
 
 from e3nn import o3
 from e3nn.util.jit import compile_mode
@@ -48,6 +49,12 @@ from .utils import (
 )
 
 # pylint: disable=C0302
+
+def _mean_l2_per_layer(stats_list):  # list over layers; each item can be a vector [B] or tensor
+    vals = []
+    for t in stats_list:     # each t is [B] from earlier suggestions
+        vals.append(t.detach().float().mean())  # scalar per layer, mean over batch
+    return torch.stack(vals)  # [L]
 
 
 @compile_mode("script")
@@ -1803,6 +1810,15 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         readouts_per_layer_class = []
         readouts_per_layer_regressor = []
 
+        mom_mapper_norm_list_cls = defaultdict(list)
+        fc_norm_list_cls = defaultdict(list)
+        attn_norm_list_cls = defaultdict(list)
+
+        mom_mapper_norm_list_regress = defaultdict(list)
+        fc_norm_list_regress = defaultdict(list)
+        attn_norm_list_regress = defaultdict(list)
+
+        layer = 0
         for (interaction,
             product,
             readouts_layers, 
@@ -1815,6 +1831,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             self.readouts['transformers_cls'],
             self.readouts['transformers_regress']
         ):
+            layer += 1
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
                 node_feats=node_feats,
@@ -1860,12 +1877,19 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
             # send tensors (not tuples) to the transformers
-            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
-            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+            preds_cls,  (mom_mapper_norm_cls, h_attn_norm_cls, fc_norm_cls)  = readouts_transformers_cls(x_cls).squeeze(-1)     # [B]
+            preds_readout,  (mom_mapper_norm_regress, h_attn_norm_regress, fc_norm_regress) = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
 
+            mom_mapper_norm_list_cls[layer].append(mom_mapper_norm_cls)
+            fc_norm_list_cls[layer].append(fc_norm_cls)
+            attn_norm_list_cls[layer].append(h_attn_norm_cls)
+
+            mom_mapper_norm_list_regress[layer].append(mom_mapper_norm_regress)
+            fc_norm_list_regress[layer].append(fc_norm_regress)
+            attn_norm_list_regress[layer].append(h_attn_norm_regress)
 
         H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L] where L = num layers
         H_reg = torch.stack(readouts_per_layer_regressor,   dim=-1)   # [B, L]
@@ -1880,6 +1904,12 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         output = {
             "coupling_class":    logits_hat,    # [B] logits (post temperature/scale)
             "effective_coupling": regress_hat,  # [B] regression (affine-calibrated)
+            "mom_mapper_norm_cls" : _mean_l2_per_layer(mom_mapper_norm_list_cls),
+            "fc_norm_cls" : _mean_l2_per_layer(fc_norm_list_cls),
+            "attn_norm_cls" : _mean_l2_per_layer(attn_norm_list_cls),
+            "mom_mapper_norm_regress" : _mean_l2_per_layer(mom_mapper_norm_list_regress),
+            "fc_norm_regress" : _mean_l2_per_layer(fc_norm_list_regress),
+            "attn_norm_regress" : _mean_l2_per_layer(attn_norm_list_regress),
         }
 
         return output
