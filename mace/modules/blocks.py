@@ -1501,7 +1501,7 @@ class TransformerGraphReadoutBlock(torch.nn.Module):
         h_mom_attn = h_mom_attn.mean(dim=1)                         # pool over C -> [B, E]
         h_ff = self.fc(h_mom_attn)
         #monitor fc norm
-        fc_norm = self.fc_norm(h.mean(dim=1))  # LN over last dim
+        fc_norm = _l2_norm_stats(h.mean(dim=1))  # LN over last dim
         return h_ff, (mom_mapper_norm, h_attn_norm, fc_norm)
 
 class ParallelSkipRegressorHead(torch.nn.Module):
