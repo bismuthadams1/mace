@@ -1710,14 +1710,14 @@ class GatedCouplingPredictor(torch.nn.Module):
             cls_sum  = scatter_sum( node_out_class,   batch_idx, dim=0, dim_size=B) # [B, C]
 
             # pack into [B, 1, 3] (C=1 channel, 3 stats)
-            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
+            x_cls = torch.stack([cls_mean, cls_std, cls_sum], dim=-1).unsqueeze(1)  # [B, C, 3]
 
             # ---- regressor stats (all [B]) ----
             reg_mean = scatter_mean(node_out_regress, batch_idx, dim=0, dim_size=B)
             reg_std  = scatter_std( node_out_regress, batch_idx, dim=0, dim_size=B)
             reg_sum  = scatter_sum( node_out_regress, batch_idx, dim=0, dim_size=B)
 
-            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
+            x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1).unsqueeze(1)  # [B, C, 3]
 
             # send tensors (not tuples) to the transformers
             preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B, C]
