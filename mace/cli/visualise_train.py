@@ -246,7 +246,7 @@ class TrainingPlotter:
             self.test_data, model, self.output_args, self.device, self.distributed, self.loss_fn,
         )
 
-                # ----- collect activations (DataFrames) -----
+        # ----- collect activations (DataFrames) -----
         train_act_df = _activations_to_df(train_valid_dict)
         test_act_df  = _activations_to_df(test_dict)
         have_acts = (not train_act_df.empty) or (not test_act_df.empty)
@@ -267,8 +267,10 @@ class TrainingPlotter:
 
             # If we have activations, make 3 subfig rows; else keep 2
             if have_acts:
+                logging.info("Plotting activation norms")
                 subfigs = fig.subfigures(3, 1, height_ratios=[1, 1, 1], hspace=0.06)
             else:
+                logging.info("No activations to plot")
                 subfigs = fig.subfigures(2, 1, height_ratios=[1, 1], hspace=0.06)
 
             # row 1: epoch dependence (unchanged)
