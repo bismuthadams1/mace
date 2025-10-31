@@ -1901,6 +1901,11 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         logits_hat  = self.scale_shift_class(total_logits,  head_idx)   # [B]
         regress_hat = self.scale_shift_regress(total_regress, head_idx) # [B]
 
+        with torch.no_grad():
+            logging.info(
+                f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls)[l] for l in mom_mapper_norm_list_cls.keys()]}"
+            )
+
         output = {
             "coupling_class":    logits_hat,    # [B] logits (post temperature/scale)
             "effective_coupling": regress_hat,  # [B] regression (affine-calibrated)
