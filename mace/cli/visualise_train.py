@@ -131,7 +131,7 @@ error_type = {
 
 KIND_MAP = {0: "mapper", 1: "attn", 2: "pooled"}
 
-def _activations_to_df(named_results: dict) -> "pd.DataFrame":
+def _activations_to_df(named_results: dict) -> pd.DataFrame:
     """
     named_results: {dataset_name: results_dict_from_model_inference}
     returns a long-form DataFrame with columns:
@@ -813,7 +813,7 @@ class InferenceMetric(Metric):
             return
 
         val   = torch.cat([c[0] for c in chunks], dim=0).cpu()
-        layer = torch.cat([c[1] for c in chunks], dim[0]).cpu()
+        layer = torch.cat([c[1] for c in chunks],  dim=0).cpu()
         kind  = torch.cat([c[2] for c in chunks], dim=0).cpu()
         step  = torch.full_like(layer, -1 if step_idx is None else int(step_idx), dtype=torch.int32)
 
@@ -841,10 +841,11 @@ class InferenceMetric(Metric):
         # Calculate number of atoms per configuration
         atoms_per_config = batch.ptr[1:] - batch.ptr[:-1]
         self.atom_counts.append(atoms_per_config)
+        logging.info('getting activations:')
         mapper_L_cls   = self._stack_layer_means(output.get("mom_mapper_norm_cls", []))
         attn_L_cls     = self._stack_layer_means(output.get("attn_norm_cls", []))
         pool_L_cls     = self._stack_layer_means(output.get("fc_norm_cls", []))
-
+        logging.info(f'activations preview cls: {mapper_L_cls}, {attn_L_cls}, {pool_L_cls}')
         mapper_L_reg   = self._stack_layer_means(output.get("mom_mapper_norm_regress", []))
         attn_L_reg     = self._stack_layer_means(output.get("attn_norm_regress", []))
         pool_L_reg     = self._stack_layer_means(output.get("fc_norm_regress", []))
