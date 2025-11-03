@@ -1756,18 +1756,57 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             num_heads = 1,
             learn_shift = False
         )
+    
+        self._register_activation_hooks()
+
+    def _register_activation_hooks(self):
+        """Attach forward hooks to capture mean activations per layer."""
+        L_cls = len(self.readouts["transformers_cls"])
+        L_reg = len(self.readouts["transformers_regress"])
+
+        # per-layer bins: list-of-lists
+        self.mom_mapper_norm_cls = [[] for _ in range(L_cls)]
+        self.attn_norm_cls       = [[] for _ in range(L_cls)]
+        self.fc_norm_cls         = [[] for _ in range(L_cls)]
+
+        self.mom_mapper_norm_reg = [[] for _ in range(L_reg)]
+        self.attn_norm_reg       = [[] for _ in range(L_reg)]
+        self.fc_norm_reg         = [[] for _ in range(L_reg)]
+
+        def capture_means(layer_bins, layer_idx):
+            def hook(module, inp, out):
+                t = out[0] if isinstance(out, tuple) else out
+                layer_bins[layer_idx].append(t.detach().float().abs().mean().item())
+            return hook
+
+        # Classifier transformers
+        for i, xf in enumerate(self.readouts["transformers_cls"]):
+            xf.mom_mapper.register_forward_hook(capture_means(self.mom_mapper_norm_cls, i))
+            xf.mom_attn.register_forward_hook(  capture_means(self.attn_norm_cls, i))
+            list(xf.fc.children())[-1].register_forward_hook(
+                capture_means(self.fc_norm_cls, i)
+            )
+
+        # Regressor transformers
+        for i, xf in enumerate(self.readouts["transformers_regress"]):
+            xf.mom_mapper.register_forward_hook(capture_means(self.mom_mapper_norm_reg, i))
+            xf.mom_attn.register_forward_hook(  capture_means(self.attn_norm_reg, i))
+            list(xf.fc.children())[-1].register_forward_hook(
+                capture_means(self.fc_norm_reg, i)
+            )
 
     def forward(
         self,
-        data, 
-        training = False, 
-        compute_force = False, 
-        compute_virials = False, 
-        compute_stress = False, 
-        compute_displacement = False, 
-        compute_edge_forces = False, 
-        compute_atomic_stresses = False, 
-        compute_coupling_class = False):
+        data,
+        training=False,
+        compute_force=False,
+        compute_virials=False,
+        compute_stress=False,
+        compute_displacement=False,
+        compute_edge_forces=False,
+        compute_atomic_stresses=False,
+        compute_coupling_class=False
+    ):
         ctx = prepare_graph(
             data,
             compute_virials=compute_virials,
@@ -1818,6 +1857,12 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         fc_norm_list_regress = defaultdict(list)
         attn_norm_list_regress = defaultdict(list)
 
+        # clear per-batch
+        for bins in (self.mom_mapper_norm_cls, self.attn_norm_cls, self.fc_norm_cls,
+                    self.mom_mapper_norm_reg, self.attn_norm_reg, self.fc_norm_reg):
+            for layer_list in bins:
+                layer_list.clear()
+            
         layer = 0
         for (interaction,
             product,
@@ -1831,6 +1876,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             self.readouts['transformers_cls'],
             self.readouts['transformers_regress']
         ):
+
             layer += 1
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
@@ -1876,20 +1922,11 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
 
             x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
-            # send tensors (not tuples) to the transformers
-            preds_cls,  (mom_mapper_norm_cls, h_attn_norm_cls, fc_norm_cls)  = readouts_transformers_cls(x_cls).squeeze(-1)     # [B]
-            preds_readout,  (mom_mapper_norm_regress, h_attn_norm_regress, fc_norm_regress) = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
+            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
-
-            mom_mapper_norm_list_cls[layer].append(mom_mapper_norm_cls)
-            fc_norm_list_cls[layer].append(fc_norm_cls)
-            attn_norm_list_cls[layer].append(h_attn_norm_cls)
-
-            mom_mapper_norm_list_regress[layer].append(mom_mapper_norm_regress)
-            fc_norm_list_regress[layer].append(fc_norm_regress)
-            attn_norm_list_regress[layer].append(h_attn_norm_regress)
 
         H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L] where L = num layers
         H_reg = torch.stack(readouts_per_layer_regressor,   dim=-1)   # [B, L]
@@ -1906,15 +1943,18 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
                 f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls)[l] for l in mom_mapper_norm_list_cls.keys()]}"
             )
 
+        def _mean_per_layer(bins):
+            return [float(sum(v)/len(v)) if len(v) else 0.0 for v in bins]
+
         output = {
             "coupling_class":    logits_hat,    # [B] logits (post temperature/scale)
             "effective_coupling": regress_hat,  # [B] regression (affine-calibrated)
-            "mom_mapper_norm_cls" : _mean_l2_per_layer(mom_mapper_norm_list_cls),
-            "fc_norm_cls" : _mean_l2_per_layer(fc_norm_list_cls),
-            "attn_norm_cls" : _mean_l2_per_layer(attn_norm_list_cls),
-            "mom_mapper_norm_regress" : _mean_l2_per_layer(mom_mapper_norm_list_regress),
-            "fc_norm_regress" : _mean_l2_per_layer(fc_norm_list_regress),
-            "attn_norm_regress" : _mean_l2_per_layer(attn_norm_list_regress),
+            "mom_mapper_norm_cls" : _mean_per_layer(mom_mapper_norm_list_cls),
+            "fc_norm_cls" : _mean_per_layer(fc_norm_list_cls),
+            "attn_norm_cls" : _mean_per_layer(attn_norm_list_cls),
+            "mom_mapper_norm_regress" : _mean_per_layer(mom_mapper_norm_list_regress),
+            "fc_norm_regress" : _mean_per_layer(fc_norm_list_regress),
+            "attn_norm_regress" : _mean_per_layer(attn_norm_list_regress),
         }
 
         return output
