@@ -1760,11 +1760,11 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         self._register_activation_hooks()
 
     def _register_activation_hooks(self):
-        """Attach forward hooks to capture mean activations per layer."""
+        """Attach forward hooks to capture per-graph ([B]) activations per layer."""
         L_cls = len(self.readouts["transformers_cls"])
         L_reg = len(self.readouts["transformers_regress"])
 
-        # per-layer bins: list-of-lists
+        # per-layer bins: list of lists; each inner list will collect tensors [B]
         self.mom_mapper_norm_cls = [[] for _ in range(L_cls)]
         self.attn_norm_cls       = [[] for _ in range(L_cls)]
         self.fc_norm_cls         = [[] for _ in range(L_cls)]
@@ -1773,27 +1773,42 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         self.attn_norm_reg       = [[] for _ in range(L_reg)]
         self.fc_norm_reg         = [[] for _ in range(L_reg)]
 
-        def capture_means(layer_bins, layer_idx):
-            def hook(module, inp, out):
-                t = out[0] if isinstance(out, tuple) else out
-                layer_bins[layer_idx].append(t.detach().float().abs().mean().item())
+        def per_graph_vals(t: torch.Tensor) -> torch.Tensor:
+            """
+            Map activation tensor to per-graph scalars [B].
+            - If [B, C, E]: norm over E, mean over C -> [B]
+            - If [B, E]:    norm over E -> [B]
+            - If [B, 1]:    abs() squeeze -> [B]
+            - Else:         flatten from dim=1 and norm -> [B]
+            """
+            t = t.detach().float()
+            if t.dim() == 3:          # [B, C, E]
+                return t.norm(dim=-1).mean(dim=1)  # [B]
+            if t.dim() == 2:          # [B, E] or [B, 1]
+                return t.norm(dim=-1)              # [B]
+            # fallback: [B, ...] -> [B]
+            B = t.shape[0]
+            return t.reshape(B, -1).norm(dim=-1)
+
+        def make_hook(layer_bins, layer_idx):
+            def hook(_module, _inp, out):
+                out = out[0] if isinstance(out, tuple) else out
+                layer_bins[layer_idx].append(per_graph_vals(out))   # append [B]
             return hook
 
         # Classifier transformers
         for i, xf in enumerate(self.readouts["transformers_cls"]):
-            xf.mom_mapper.register_forward_hook(capture_means(self.mom_mapper_norm_cls, i))
-            xf.mom_attn.register_forward_hook(  capture_means(self.attn_norm_cls, i))
-            list(xf.fc.children())[-1].register_forward_hook(
-                capture_means(self.fc_norm_cls, i)
-            )
+            xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_cls, i))  # [B,C,E] -> [B]
+            xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_cls,       i))   # [B,C,E] -> [B]
+            # hook the last Linear of fc; its output is [B,1] (before squeeze)
+            list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_cls, i))
 
         # Regressor transformers
         for i, xf in enumerate(self.readouts["transformers_regress"]):
-            xf.mom_mapper.register_forward_hook(capture_means(self.mom_mapper_norm_reg, i))
-            xf.mom_attn.register_forward_hook(  capture_means(self.attn_norm_reg, i))
-            list(xf.fc.children())[-1].register_forward_hook(
-                capture_means(self.fc_norm_reg, i)
-            )
+            xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_reg, i))
+            xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_reg,       i))
+            list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_reg, i))
+
 
     def forward(
         self,
@@ -1814,6 +1829,13 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             compute_displacement=compute_displacement,
             lammps_mliap=False,
         )
+
+        for bins in (
+            self.mom_mapper_norm_cls, self.attn_norm_cls, self.fc_norm_cls,
+            self.mom_mapper_norm_reg, self.attn_norm_reg, self.fc_norm_reg
+        ):
+            for layer_list in bins:
+                layer_list.clear()
 
         is_lammps = ctx.is_lammps
         num_atoms_arange = ctx.num_atoms_arange
@@ -1856,12 +1878,6 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         mom_mapper_norm_list_regress = defaultdict(list)
         fc_norm_list_regress = defaultdict(list)
         attn_norm_list_regress = defaultdict(list)
-
-        # clear per-batch
-        for bins in (self.mom_mapper_norm_cls, self.attn_norm_cls, self.fc_norm_cls,
-                    self.mom_mapper_norm_reg, self.attn_norm_reg, self.fc_norm_reg):
-            for layer_list in bins:
-                layer_list.clear()
             
         layer = 0
         for (interaction,
@@ -1943,18 +1959,16 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
                 f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls)[l] for l in mom_mapper_norm_list_cls.keys()]}"
             )
 
-        def _mean_per_layer(bins):
-            return [float(sum(v)/len(v)) if len(v) else 0.0 for v in bins]
 
         output = {
             "coupling_class":    logits_hat,    # [B] logits (post temperature/scale)
             "effective_coupling": regress_hat,  # [B] regression (affine-calibrated)
-            "mom_mapper_norm_cls" : _mean_per_layer(mom_mapper_norm_list_cls),
-            "fc_norm_cls" : _mean_per_layer(fc_norm_list_cls),
-            "attn_norm_cls" : _mean_per_layer(attn_norm_list_cls),
-            "mom_mapper_norm_regress" : _mean_per_layer(mom_mapper_norm_list_regress),
-            "fc_norm_regress" : _mean_per_layer(fc_norm_list_regress),
-            "attn_norm_regress" : _mean_per_layer(attn_norm_list_regress),
+            "mom_mapper_norm_cls": self.mom_mapper_norm_cls,
+            "attn_norm_cls":       self.attn_norm_cls,
+            "fc_norm_cls":         self.fc_norm_cls,
+            "mom_mapper_norm_regress": self.mom_mapper_norm_reg,
+            "attn_norm_regress":       self.attn_norm_reg,
+            "fc_norm_regress":         self.fc_norm_reg,
         }
 
         return output
