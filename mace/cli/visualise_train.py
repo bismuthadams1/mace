@@ -692,6 +692,8 @@ def model_inference(
                 compute_stress=output_args.get("stress", False),
             )
 
+            logging.info(f'Output preview: {output} ')
+
             results = scatter_metric(batch, output) #this calls update()
 
         if distributed:
