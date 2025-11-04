@@ -1757,57 +1757,57 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             learn_shift = False
         )
     
-        self._register_activation_hooks()
+        # self._register_activation_hooks()
 
-    def _register_activation_hooks(self):
-        """Attach forward hooks to capture per-graph ([B]) activations per layer."""
-        L_cls = len(self.readouts["transformers_cls"])
-        L_reg = len(self.readouts["transformers_regress"])
+    # def _register_activation_hooks(self):
+    #     """Attach forward hooks to capture per-graph ([B]) activations per layer."""
+    #     L_cls = len(self.readouts["transformers_cls"])
+    #     L_reg = len(self.readouts["transformers_regress"])
 
-        # per-layer bins: list of lists; each inner list will collect tensors [B]
-        self.mom_mapper_norm_cls = [[] for _ in range(L_cls)]
-        self.attn_norm_cls       = [[] for _ in range(L_cls)]
-        self.fc_norm_cls         = [[] for _ in range(L_cls)]
+    #     # per-layer bins: list of lists; each inner list will collect tensors [B]
+    #     self.mom_mapper_norm_cls = [[] for _ in range(L_cls)]
+    #     self.attn_norm_cls       = [[] for _ in range(L_cls)]
+    #     self.fc_norm_cls         = [[] for _ in range(L_cls)]
 
-        self.mom_mapper_norm_reg = [[] for _ in range(L_reg)]
-        self.attn_norm_reg       = [[] for _ in range(L_reg)]
-        self.fc_norm_reg         = [[] for _ in range(L_reg)]
+    #     self.mom_mapper_norm_reg = [[] for _ in range(L_reg)]
+    #     self.attn_norm_reg       = [[] for _ in range(L_reg)]
+    #     self.fc_norm_reg         = [[] for _ in range(L_reg)]
 
-        def per_graph_vals(t: torch.Tensor) -> torch.Tensor:
-            """
-            Map activation tensor to per-graph scalars [B].
-            - If [B, C, E]: norm over E, mean over C -> [B]
-            - If [B, E]:    norm over E -> [B]
-            - If [B, 1]:    abs() squeeze -> [B]
-            - Else:         flatten from dim=1 and norm -> [B]
-            """
-            t = t.detach().float()
-            if t.dim() == 3:          # [B, C, E]
-                return t.norm(dim=-1).mean(dim=1)  # [B]
-            if t.dim() == 2:          # [B, E] or [B, 1]
-                return t.norm(dim=-1)              # [B]
-            # fallback: [B, ...] -> [B]
-            B = t.shape[0]
-            return t.reshape(B, -1).norm(dim=-1)
+    #     def per_graph_vals(t: torch.Tensor) -> torch.Tensor:
+    #         """
+    #         Map activation tensor to per-graph scalars [B].
+    #         - If [B, C, E]: norm over E, mean over C -> [B]
+    #         - If [B, E]:    norm over E -> [B]
+    #         - If [B, 1]:    abs() squeeze -> [B]
+    #         - Else:         flatten from dim=1 and norm -> [B]
+    #         """
+    #         t = t.detach().float()
+    #         if t.dim() == 3:          # [B, C, E]
+    #             return t.norm(dim=-1).mean(dim=1)  # [B]
+    #         if t.dim() == 2:          # [B, E] or [B, 1]
+    #             return t.norm(dim=-1)              # [B]
+    #         # fallback: [B, ...] -> [B]
+    #         B = t.shape[0]
+    #         return t.reshape(B, -1).norm(dim=-1)
 
-        def make_hook(layer_bins, layer_idx):
-            def hook(_module, _inp, out):
-                out = out[0] if isinstance(out, tuple) else out
-                layer_bins[layer_idx].append(per_graph_vals(out))   # append [B]
-            return hook
+    #     def make_hook(layer_bins, layer_idx):
+    #         def hook(_module, _inp, out):
+    #             out = out[0] if isinstance(out, tuple) else out
+    #             layer_bins[layer_idx].append(per_graph_vals(out))   # append [B]
+    #         return hook
 
-        # Classifier transformers
-        for i, xf in enumerate(self.readouts["transformers_cls"]):
-            xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_cls, i))  # [B,C,E] -> [B]
-            xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_cls,       i))   # [B,C,E] -> [B]
-            # hook the last Linear of fc; its output is [B,1] (before squeeze)
-            list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_cls, i))
+    #     # Classifier transformers
+    #     for i, xf in enumerate(self.readouts["transformers_cls"]):
+    #         xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_cls, i))  # [B,C,E] -> [B]
+    #         xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_cls,       i))   # [B,C,E] -> [B]
+    #         # hook the last Linear of fc; its output is [B,1] (before squeeze)
+    #         list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_cls, i))
 
-        # Regressor transformers
-        for i, xf in enumerate(self.readouts["transformers_regress"]):
-            xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_reg, i))
-            xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_reg,       i))
-            list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_reg, i))
+    #     # Regressor transformers
+    #     for i, xf in enumerate(self.readouts["transformers_regress"]):
+    #         xf.mom_mapper.register_forward_hook(make_hook(self.mom_mapper_norm_reg, i))
+    #         xf.mom_attn.register_forward_hook( make_hook(self.attn_norm_reg,       i))
+    #         list(xf.fc.children())[-1].register_forward_hook(make_hook(self.fc_norm_reg, i))
 
 
     def forward(
@@ -1938,11 +1938,19 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
 
             x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
-            preds_cls     = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
-            preds_readout = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+            preds_cls, (mom_mapper_norm_cls, h_attn_norm_cls, fc_norm_cls) = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
+            preds_readout, (mom_mapper_norm_regress, h_attn_norm_regress, fc_norm_regress) = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
+
+            mom_mapper_norm_list_regress[layer].append(mom_mapper_norm_regress)
+            attn_norm_list_regress[layer].append(h_attn_norm_regress)
+            fc_norm_list_regress[layer].append(fc_norm_regress)
+
+            mom_mapper_norm_list_cls[layer].append(mom_mapper_norm_cls)
+            attn_norm_list_cls[layer].append(h_attn_norm_cls)
+            fc_norm_list_cls[layer].append(fc_norm_cls)
 
         H_cls = torch.stack(readouts_per_layer_class, dim=-1)   # [B, L] where L = num layers
         H_reg = torch.stack(readouts_per_layer_regressor,   dim=-1)   # [B, L]
@@ -1958,6 +1966,37 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             logging.info(
                 f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls)[l] for l in mom_mapper_norm_list_cls.keys()]}"
             )
+
+        # Store norms per layer
+        self.mom_mapper_norm_cls = torch.stack([
+            torch.stack(mom_mapper_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(mom_mapper_norm_list_cls.keys())
+        ], dim=-1)  # [B, L]    
+
+        self.attn_norm_cls = torch.stack([
+            torch.stack(attn_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(attn_norm_list_cls.keys())
+        ], dim=-1)  # [B, L]    
+
+        self.fc_norm_cls = torch.stack([
+            torch.stack(fc_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(fc_norm_list_cls.keys())
+        ], dim=-1)  # [B, L]
+
+        self.mom_mapper_norm_reg = torch.stack([
+            torch.stack(mom_mapper_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(mom_mapper_norm_list_regress.keys())
+        ], dim=-1)  # [B, L]
+
+        self.attn_norm_reg = torch.stack([
+            torch.stack(attn_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(attn_norm_list_regress.keys())
+        ], dim=-1)  # [B, L]
+
+        self.fc_norm_reg = torch.stack([
+            torch.stack(fc_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
+            for l in sorted(fc_norm_list_regress.keys())
+        ], dim=-1)  # [B, L]
 
 
         output = {
