@@ -1894,6 +1894,7 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         ):
 
             layer += 1
+            # logging.info(f"Processing layer {layer}")
             node_feats, sc = interaction(
                 node_attrs=data["node_attrs"],
                 node_feats=node_feats,
@@ -1938,8 +1939,11 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
 
             x_reg = torch.stack([reg_mean, reg_std, reg_sum], dim=-1)#.unsqueeze(1)  # [B, C, 3]
 
-            preds_cls, (mom_mapper_norm_cls, h_attn_norm_cls, fc_norm_cls) = readouts_transformers_cls(x_cls).squeeze(-1)      # [B]
-            preds_readout, (mom_mapper_norm_regress, h_attn_norm_regress, fc_norm_regress) = readouts_transformers_regress(x_reg).squeeze(-1)  # [B]
+            out_cls, (mom_mapper_norm_cls, h_attn_norm_cls, fc_norm_cls) = readouts_transformers_cls(x_cls)
+            preds_cls = out_cls.squeeze(-1)      # [B]
+
+            out_reg, (mom_mapper_norm_regress, h_attn_norm_regress, fc_norm_regress) = readouts_transformers_regress(x_reg)
+            preds_readout = out_reg.squeeze(-1)  # [B]
 
             readouts_per_layer_class.append(preds_cls)
             readouts_per_layer_regressor.append(preds_readout)
@@ -1964,39 +1968,39 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
 
         with torch.no_grad():
             logging.info(
-                f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls)[l] for l in mom_mapper_norm_list_cls.keys()]}"
+                f"mom mapper norms per layer (cls): {[_mean_l2_per_layer(mom_mapper_norm_list_cls[l]) for l in mom_mapper_norm_list_cls.keys()]}"
             )
 
         # Store norms per layer
-        self.mom_mapper_norm_cls = torch.stack([
+        self.mom_mapper_norm_cls = [
             torch.stack(mom_mapper_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(mom_mapper_norm_list_cls.keys())
-        ], dim=-1)  # [B, L]    
+        ]
 
-        self.attn_norm_cls = torch.stack([
+        self.attn_norm_cls = [
             torch.stack(attn_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(attn_norm_list_cls.keys())
-        ], dim=-1)  # [B, L]    
+        ]
 
-        self.fc_norm_cls = torch.stack([
+        self.fc_norm_cls = [
             torch.stack(fc_norm_list_cls[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(fc_norm_list_cls.keys())
-        ], dim=-1)  # [B, L]
+        ]
 
-        self.mom_mapper_norm_reg = torch.stack([
+        self.mom_mapper_norm_reg = [
             torch.stack(mom_mapper_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(mom_mapper_norm_list_regress.keys())
-        ], dim=-1)  # [B, L]
+        ]
 
-        self.attn_norm_reg = torch.stack([
+        self.attn_norm_reg = [
             torch.stack(attn_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(attn_norm_list_regress.keys())
-        ], dim=-1)  # [B, L]
+        ]
 
-        self.fc_norm_reg = torch.stack([
+        self.fc_norm_reg = [
             torch.stack(fc_norm_list_regress[l], dim=-1).mean(dim=-1)  # [B]
             for l in sorted(fc_norm_list_regress.keys())
-        ], dim=-1)  # [B, L]
+        ]
 
 
         output = {
