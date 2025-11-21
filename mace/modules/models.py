@@ -1830,12 +1830,12 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
             lammps_mliap=False,
         )
 
-        for bins in (
-            self.mom_mapper_norm_cls, self.attn_norm_cls, self.fc_norm_cls,
-            self.mom_mapper_norm_reg, self.attn_norm_reg, self.fc_norm_reg
-        ):
-            for layer_list in bins:
-                layer_list.clear()
+        # for bins in (
+        #     self.mom_mapper_norm_cls, self.attn_norm_cls, self.fc_norm_cls,
+        #     self.mom_mapper_norm_reg, self.attn_norm_reg, self.fc_norm_reg
+        # ):
+        #     for layer_list in bins:
+        #         layer_list.clear()
 
         is_lammps = ctx.is_lammps
         num_atoms_arange = ctx.num_atoms_arange
@@ -1878,7 +1878,17 @@ class ScaleShiftGatedCouplingPredictor(GatedCouplingPredictor):
         mom_mapper_norm_list_regress = defaultdict(list)
         fc_norm_list_regress = defaultdict(list)
         attn_norm_list_regress = defaultdict(list)
-            
+        
+        logging.info(f"DEBUG: Starting loop. interactions={len(self.interactions)}, products={len(self.products)}")
+        if isinstance(self.readouts, torch.nn.ModuleDict):
+             logging.info(f"DEBUG: readouts keys={list(self.readouts.keys())}")
+             if 'layers' in self.readouts:
+                 logging.info(f"DEBUG: readouts['layers'] len={len(self.readouts['layers'])}")
+             if 'transformers_cls' in self.readouts:
+                 logging.info(f"DEBUG: readouts['transformers_cls'] len={len(self.readouts['transformers_cls'])}")
+             if 'transformers_regress' in self.readouts:
+                 logging.info(f"DEBUG: readouts['transformers_regress'] len={len(self.readouts['transformers_regress'])}")
+
         layer = 0
         for (interaction,
             product,
