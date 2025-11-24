@@ -847,11 +847,11 @@ class InferenceMetric(Metric):
         mapper_L_cls   = self._stack_layer_means(output.get("mom_mapper_norm_cls", []))
         attn_L_cls     = self._stack_layer_means(output.get("attn_norm_cls", []))
         pool_L_cls     = self._stack_layer_means(output.get("fc_norm_cls", []))
-        logging.info(f'activations preview reg: {mapper_L_reg}, {attn_L_reg}, {pool_L_reg}')
-        logging.info(f'activations preview cls: {mapper_L_cls}, {attn_L_cls}, {pool_L_cls}')
         mapper_L_reg   = self._stack_layer_means(output.get("mom_mapper_norm_regress", []))
         attn_L_reg     = self._stack_layer_means(output.get("attn_norm_regress", []))
         pool_L_reg     = self._stack_layer_means(output.get("fc_norm_regress", []))
+        logging.info(f'activations preview reg: {mapper_L_reg}, {attn_L_reg}, {pool_L_reg}')
+        logging.info(f'activations preview cls: {mapper_L_cls}, {attn_L_cls}, {pool_L_cls}')
 
         with torch.no_grad():
             self._accum_long_form(target="cls",
